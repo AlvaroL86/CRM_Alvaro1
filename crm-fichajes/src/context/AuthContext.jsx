@@ -1,46 +1,45 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from "react";
 
-const AuthContext = createContext();
+const AuthContext = createContext(null);
 
-export const useAuth = () => useContext(AuthContext);
-
-export const AuthProvider = ({ children }) => {
+export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [token, setToken] = useState(null);
+  const [ready, setReady] = useState(false);
 
-  // Función login mejorada: devuelve ok y mensaje de error
-  const login = async (username, password) => {
+  useEffect(() => {
+    // Carga inicial desde localStorage
     try {
-      const response = await fetch('http://localhost:3000/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        // Error del backend con mensaje concreto
-        return { ok: false, error: data.message || 'Error al iniciar sesión' };
+      const u = localStorage.getItem("crm_user");
+      const t = localStorage.getItem("crm_token");
+      if (u && t) {
+        setUser(JSON.parse(u));
+        setToken(t);
       }
+    } catch {}
+    setReady(true);
+  }, []);
 
-      // Si tu backend responde con { user: {...}, token: "..." }
-      setUser({
-        ...data.user,     // incluye id, username, rol, nif...
-        token: data.token // si lo necesitas
-      });
-
-      return { ok: true };
-    } catch (error) {
-      // Error de red u otro error inesperado
-      return { ok: false, error: error.message || 'Error desconocido' };
-    }
+  const login = (u, t) => {
+    setUser(u);
+    setToken(t);
+    localStorage.setItem("crm_user", JSON.stringify(u));
+    localStorage.setItem("crm_token", t);
+    return { ok: true };
   };
 
-  const logout = () => setUser(null);
+  const logout = () => {
+    setUser(null);
+    setToken(null);
+    localStorage.removeItem("crm_user");
+    localStorage.removeItem("crm_token");
+  };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, token, ready, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
-};
+}
+
+export const useAuth = () => useContext(AuthContext);

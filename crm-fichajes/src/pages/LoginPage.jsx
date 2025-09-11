@@ -1,62 +1,73 @@
-// src/pages/LoginPage.jsx
-import { useState, useContext } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { AuthContext } from '../context/AuthContext';
+import { useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
 
 export default function LoginPage() {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [err, setErr] = useState("");
   const navigate = useNavigate();
-  const { login } = useContext(AuthContext);
-  const [formData, setFormData] = useState({ username: '', password: '' });
-  const [error, setError] = useState(null);
 
-  const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
-  };
-
-  const handleSubmit = async (e) => {
+  async function enviar(e) {
     e.preventDefault();
-    const success = await login(formData.username, formData.password);
-    if (success) {
-      navigate('/dashboard');
-    } else {
-      setError('Credenciales incorrectas');
+    setErr("");
+    try {
+      const res = await fetch("http://localhost:3000/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Login incorrecto");
+
+      // guarda info mínima para otras pantallas
+      localStorage.setItem("user_token", data.token);
+      localStorage.setItem("user_id", data.user.id);
+      localStorage.setItem("username", data.user.username || "");
+      localStorage.setItem("nombre", data.user.nombre || "");
+      localStorage.setItem("rol", data.user.rol || "");
+      navigate("/dashboard", { replace: true });
+    } catch (e) {
+      setErr(e.message);
     }
-  };
+  }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
-      <form onSubmit={handleSubmit} className="bg-white p-8 rounded shadow-md w-full max-w-sm">
-        <h2 className="text-xl font-semibold mb-6 text-center">Iniciar sesión</h2>
+    <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
+      <div className="w-full max-w-md bg-white shadow rounded p-6 space-y-4">
+        <h1 className="text-2xl font-bold text-gray-800 text-center">CRM Fichajes</h1>
+        {err && <p className="text-red-600 text-center">{err}</p>}
+        <form onSubmit={enviar} className="space-y-3">
+          <div>
+            <label className="block text-sm text-gray-700">Usuario</label>
+            <input
+              autoComplete="username"
+              className="mt-1 w-full border rounded p-2"
+              value={username}
+              onChange={e=>setUsername(e.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-700">Contraseña</label>
+            <input
+              type="password"
+              autoComplete="current-password"
+              className="mt-1 w-full border rounded p-2"
+              value={password}
+              onChange={e=>setPassword(e.target.value)}
+              required
+            />
+          </div>
+          <button className="w-full bg-blue-600 text-white rounded py-2 hover:bg-blue-700">
+            Acceder
+          </button>
+        </form>
 
-        <input
-          type="text"
-          name="username"
-          placeholder="Usuario"
-          value={formData.username}
-          onChange={handleChange}
-          className="mb-4 w-full px-4 py-2 border rounded"
-          required
-        />
-
-        <input
-          type="password"
-          name="password"
-          placeholder="Contraseña"
-          value={formData.password}
-          onChange={handleChange}
-          className="mb-4 w-full px-4 py-2 border rounded"
-          required
-        />
-
-        {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
-
-        <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded">
-          Entrar
-        </button>
-      </form>
+        <div className="flex items-center justify-between text-sm">
+          <Link to="/forgot" className="text-blue-600 hover:underline">Olvidé mi contraseña</Link>
+          <Link to="/request-access" className="text-blue-600 hover:underline">Solicitar acceso</Link>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,82 +1,252 @@
+// fichaje-api/routes/usuarios.js
 const express = require('express');
-const router = express.Router();
+const router = require('express').Router ? require('express').Router() : express.Router();
 const db = require('../db');
-const verificarToken = require('./middleware/auth'); // ✅ solo esta
-const moment = require('moment');
+const bcrypt = require('bcryptjs');
+const verificarToken = require('../middleware/auth'); // Tu middleware devuelve una función
 
-// 1. Obtener todos los usuarios (solo admin)
-router.get('/', verificarToken, async (req, res) => {
-  if (req.usuario.rol !== 'admin') {
-    return res.status(403).json({ error: 'Acceso restringido a administradores' });
+/* ───────────────────────── Helpers ───────────────────────── */
+function onlyAdminOrSupervisor(req, res) {
+  const rol = (req.usuario?.rol || '').toLowerCase();
+  if (!['admin', 'supervisor'].includes(rol)) {
+    res.status(403).json({ error: 'No autorizado' });
+    return false;
   }
+  return true;
+}
 
+// Protege TODO el router con JWT (aunque ya lo montes con auth en index.js,
+// aquí no molesta y garantiza protección si alguien monta la ruta sin auth).
+router.use(verificarToken);
+
+/* ───────────────────────── Listar usuarios ───────────────────────── */
+// GET /usuarios
+router.get('/', async (req, res) => {
+  if (!onlyAdminOrSupervisor(req, res)) return;
   try {
+    const { nif } = req.usuario;
     const [rows] = await db.query(
-      'SELECT id, username, nombre, email, rol FROM usuarios'
+      `SELECT id, username, nombre, email, telefono, rol, estado, avatar_url
+         FROM usuarios
+        WHERE nif = ?
+        ORDER BY nombre`,
+      [nif]
     );
     res.json(rows);
-  } catch (error) {
-    console.error('❌ Error al obtener usuarios:', error);
+  } catch (e) {
+    console.error('GET /usuarios', e);
     res.status(500).json({ error: 'Error interno' });
   }
 });
 
-// 2. Obtener usuario por ID (opcional)
-router.get('/:id', verificarToken, async (req, res) => {
-  const usuario_id = req.params.id;
-
+/* ───────────────────────── Crear usuario ───────────────────────── */
+// POST /usuarios (solo admin/supervisor)
+router.post('/', async (req, res) => {
+  if (!onlyAdminOrSupervisor(req, res)) return;
   try {
-    const [rows] = await db.query(
-      'SELECT id, username, nombre, email, rol FROM usuarios WHERE id = ?',
-      [usuario_id]
+    const { nif } = req.usuario;
+    const { username, nombre='', email='', telefono=null, rol='empleado', password='cambiar123' } = req.body || {};
+    if (!username) return res.status(400).json({ error: 'username requerido' });
+
+    // Unicidades globales (según tu esquema)
+    const [[u1]] = await db.query(`SELECT COUNT(*) c FROM usuarios WHERE username = ?`, [username]);
+    if (u1.c) return res.status(409).json({ error: 'username ya existe' });
+    if (email) {
+      const [[u2]] = await db.query(`SELECT COUNT(*) c FROM usuarios WHERE email = ?`, [email]);
+      if (u2.c) return res.status(409).json({ error: 'email ya existe' });
+    }
+
+    const [[idRow]] = await db.query('SELECT UUID() AS id');
+    const id = idRow.id;
+    const hash = await require('bcryptjs').hash(password, 10);
+
+    await db.query(
+      `INSERT INTO usuarios (id, username, nombre, email, nif, telefono, rol, estado, fecha_registro, password)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW(), ?)`,
+      [id, username, nombre, email || null, nif, telefono, rol.toLowerCase(), hash]
     );
 
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
-    }
-
-    res.json(rows[0]);
-  } catch (error) {
-    console.error('❌ Error al obtener usuario:', error);
+    res.status(201).json({ id });
+  } catch (e) {
+    console.error('POST /usuarios', e);
     res.status(500).json({ error: 'Error interno' });
   }
 });
 
-// 3. Obtener usuarios actualmente trabajando (último fichaje = entrada)
-router.get('/online', verificarToken, async (req, res) => {
-  if (req.usuario.rol !== 'admin') {
-    return res.status(403).json({ error: 'Acceso restringido a administradores' });
-  }
-
+/* ─────────────────────── Cambiar SOLO el rol ─────────────────────── */
+// PUT /usuarios/:id/rol   { rol }
+router.put('/:id/rol', async (req, res) => {
+  if (!onlyAdminOrSupervisor(req, res)) return;
   try {
-    const [usuarios] = await db.query('SELECT id, username FROM usuarios');
-    const online = [];
+    const { id } = req.params;
+    const { nif } = req.usuario;
+    const rol = String(req.body?.rol || 'empleado').toLowerCase();
 
-    for (const usuario of usuarios) {
-      const [ultimo] = await db.query(
-        `SELECT tipo, fecha_hora
-         FROM fichajes
-         WHERE usuario_id = ?
-         ORDER BY fecha_hora DESC
-         LIMIT 1`,
-        [usuario.id]
+    await db.query(
+      `UPDATE usuarios SET rol = ? WHERE id = ? AND nif = ?`,
+      [rol, id, nif]
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('PUT /usuarios/:id/rol', e);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+/* ─────────────────────── Editar usuario (full) ───────────────────── */
+// PUT /usuarios/:id
+router.put('/:id', async (req, res) => {
+  if (!onlyAdminOrSupervisor(req, res)) return;
+  try {
+    const { id } = req.params;
+    const { nif } = req.usuario;
+    const { nombre, email, telefono, rol, estado, password } = req.body || {};
+
+    // Si trae password, la cambiamos
+    if (password) {
+      const hash = await bcrypt.hash(password, 10);
+      await db.query(
+        `UPDATE usuarios
+            SET nombre = ?, email = ?, telefono = ?, rol = ?, estado = ?, password = ?
+          WHERE id = ? AND nif = ?`,
+        [
+          nombre || null,
+          email || null,
+          telefono || null,
+          (rol || 'empleado').toLowerCase(),
+          estado ? 1 : 0,
+          hash,
+          id,
+          nif,
+        ]
       );
-
-      if (ultimo.length > 0 && ultimo[0].tipo === 'entrada') {
-        online.push({
-          usuario: usuario.username,
-          entrada_hora: moment(ultimo[0].fecha_hora).format('HH:mm'),
-          estado: 'trabajando'
-        });
-      }
+    } else {
+      await db.query(
+        `UPDATE usuarios
+            SET nombre = ?, email = ?, telefono = ?, rol = ?, estado = ?
+          WHERE id = ? AND nif = ?`,
+        [
+          nombre || null,
+          email || null,
+          telefono || null,
+          (rol || 'empleado').toLowerCase(),
+          estado ? 1 : 0,
+          id,
+          nif,
+        ]
+      );
     }
 
-    res.json(online);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('PUT /usuarios/:id', e);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
 
-  } catch (error) {
-    console.error('❌ Error al obtener usuarios online:', error);
+/* ─────────────────────── Desactivar usuario ──────────────────────── */
+// DELETE /usuarios/:id
+router.delete('/:id', async (req, res) => {
+  if (!onlyAdminOrSupervisor(req, res)) return;
+  try {
+    const { id } = req.params;
+    const { nif } = req.usuario;
+    await db.query(`UPDATE usuarios SET estado = 0 WHERE id = ? AND nif = ?`, [id, nif]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('DELETE /usuarios/:id', e);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+/* ───────────────────── Subida de avatar (perfil) ─────────────────── */
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(__dirname, '..', 'uploads', 'avatars');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    cb(null, `${req.usuario.id}${ext || '.png'}`);
+  },
+});
+const upload = multer({
+  storage,
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
+  fileFilter: (req, file, cb) => {
+    const ok = ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype);
+    cb(ok ? null : new Error('FORMATO_NO_VALIDO'));
+  },
+});
+
+// POST /usuarios/avatar   (el usuario actual se sube su propio avatar)
+router.post('/avatar', upload.single('avatar'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Falta archivo' });
+    const rel = `/uploads/avatars/${req.file.filename}`;
+    await db.query(
+      `UPDATE usuarios SET avatar_url = ? WHERE id = ? AND nif = ?`,
+      [rel, req.usuario.id, req.usuario.nif]
+    );
+    res.json({ avatar_url: rel });
+  } catch (e) {
+    console.error('POST /usuarios/avatar', e);
     res.status(500).json({ error: 'Error interno' });
   }
 });
 
 module.exports = router;
+// GET /usuarios/search?q=...   (mismos NIF)
+router.get("/search", verificarToken, async (req, res) => {
+  try {
+    const { nif } = req.usuario;
+    const q = (req.query.q || "").trim();
+    const like = `%${q}%`;
+    const [rows] = await db.query(
+      `SELECT id, username, nombre, email
+         FROM usuarios
+        WHERE nif=? AND (
+          username LIKE ? OR nombre LIKE ? OR email LIKE ?
+        )
+        ORDER BY nombre ASC
+        LIMIT 20`,
+      [nif, like, like, like]
+    );
+    res.json(rows);
+  } catch (e) {
+    console.error("GET /usuarios/search", e);
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+// fichaje-api/routes/usuarios.js  (añade al final)
+router.get('/invitables', verificarToken, async (req, res) => {
+  try {
+    const { nif, id:userId } = req.usuario;
+    const q = (req.query.q || '').trim();
+    const like = `%${q}%`;
+
+    const [rows] = await db.query(
+      `SELECT id,
+              COALESCE(nombre, username, email) AS label,
+              username,
+              email
+         FROM usuarios
+        WHERE nif = ?
+          AND id <> ?
+          AND ( ? = '' OR nombre LIKE ? OR username LIKE ? OR email LIKE ? )
+        ORDER BY nombre, username
+        LIMIT 50`,
+      [nif, userId, q, like, like, like]
+    );
+    res.json(rows);
+  } catch (e) {
+    console.error('GET /usuarios/invitables', e);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});

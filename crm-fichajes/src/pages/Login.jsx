@@ -1,65 +1,161 @@
 // src/pages/Login.jsx
 import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { apiPost } from "../services/api";
+
+// Marca configurable por .env
+const BRAND = import.meta.env.VITE_BRAND || "Alvaro";
+const BRAND_LOGO = import.meta.env.VITE_BRAND_LOGO || ""; // URL opcional
 
 export default function Login() {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const { login } = useAuth();
   const navigate = useNavigate();
-  const [error, setError] = useState("");
+  const { login } = useAuth();
 
-  const handleSubmit = async (e) => {
+  // Defaults que ya usabas
+  const [username, setUsername] = useState("admin01");
+  const [password, setPassword] = useState("1234");
+  const [showPwd, setShowPwd] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function onSubmit(e) {
     e.preventDefault();
-    setError(""); // Limpia error anterior
+    try {
+      setErr("");
+      if (!username.trim() || !password.trim()) {
+        setErr("Usuario y contraseña son obligatorios.");
+        return;
+      }
+      setLoading(true);
 
-    // login espera ahora username, password por separado
-    const result = await login(username, password);
+      // Ajusta la ruta/campos si tu backend usa otros nombres
+      const body = { username: username.trim(), password };
+      const data = await apiPost("/auth/login", body);
 
-    if (result.ok) {
-      navigate("/dashboard");
-    } else {
-      setError(result.error); // Muestra el error concreto
+      // Normalizamos posibles formatos de respuesta
+      if (data?.ok === false) throw new Error(data.error || "No autorizado");
+
+      const token =
+        data?.token || data?.access_token || data?.jwt || data?.data?.token;
+      const user =
+        data?.user ||
+        data?.usuario ||
+        data?.data?.user ||
+        data?.data?.usuario;
+
+      if (!token || !user) {
+        throw new Error("Respuesta de login inválida");
+      }
+
+      // Guarda en AuthContext (+ localStorage dentro del provider)
+      login(user, token);
+
+      // Redirige a dashboard
+      navigate("/dashboard", { replace: true });
+    } catch (e) {
+      setErr(e.message || "Error de acceso");
+    } finally {
+      setLoading(false);
     }
-  };
-
+  }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <form
-        onSubmit={handleSubmit}
-        className="bg-white p-6 rounded shadow-md w-80"
-      >
-        <h2 className="text-xl font-bold mb-4 text-center">Iniciar sesión</h2>
+    <div className="min-h-screen grid place-items-center bg-gray-50 px-4">
+      <div className="w-full max-w-md">
+        {/* Encabezado adaptable */}
+        <div className="text-center mb-6">
+          {BRAND_LOGO ? (
+            <img
+              src={BRAND_LOGO}
+              alt={BRAND}
+              className="mx-auto h-12 w-auto object-contain"
+            />
+          ) : (
+            <span className="inline-flex items-center rounded-full bg-blue-600 text-white px-3 py-1 text-sm font-semibold">
+              {import.meta.env.MODE === "development" ? BRAND : "CRM"}
+            </span>
+          )}
+          <h1 className="mt-3 text-2xl font-bold text-gray-900">CRM Fichajes</h1>
+          <p className="text-gray-500 mt-1">Accede a tu cuenta</p>
+        </div>
 
-        {error && <p className="text-red-500 text-sm mb-2">{error}</p>}
+        <div className="bg-white rounded-xl shadow p-6">
+          {err && (
+            <div className="mb-4 rounded-md bg-red-50 border border-red-200 text-red-700 px-4 py-2 text-sm">
+              {err}
+            </div>
+          )}
 
-        <input
-          type="text"
-          placeholder="Usuario"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          className="w-full p-2 border border-gray-300 rounded mb-4"
-          required
-        />
+          <form onSubmit={onSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">
+                Usuario
+              </label>
+              <input
+                type="text"
+                autoComplete="username"
+                className="mt-1 w-full rounded-lg border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="admin01"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
+            </div>
 
-        <input
-          type="password"
-          placeholder="Contraseña"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full p-2 border border-gray-300 rounded mb-4"
-          required
-        />
+            <div>
+              <label className="block text-sm font-medium text-gray-700">
+                Contraseña
+              </label>
+              <div className="mt-1 relative">
+                <input
+                  type={showPwd ? "text" : "password"}
+                  autoComplete="current-password"
+                  className="w-full rounded-lg border-gray-300 pr-10 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPwd((s) => !s)}
+                  className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 hover:text-gray-700"
+                  tabIndex={-1}
+                  title={showPwd ? "Ocultar" : "Mostrar"}
+                >
+                  {showPwd ? "🙈" : "👁️"}
+                </button>
+              </div>
+            </div>
 
-        <button
-          type="submit"
-          className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
-        >
-          Acceder
-        </button>
-      </form>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full inline-flex justify-center items-center rounded-lg bg-blue-600 text-white font-medium py-2.5 hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-200 disabled:opacity-60"
+            >
+              {loading ? "Accediendo..." : "Acceder"}
+            </button>
+          </form>
+
+          <div className="mt-6 flex items-center justify-between text-sm">
+            <Link
+              to="/forgot"
+              className="text-blue-600 hover:text-blue-700 hover:underline"
+            >
+              Olvidé mi contraseña
+            </Link>
+            <Link
+              to="/request-access"
+              className="text-blue-600 hover:text-blue-700 hover:underline"
+            >
+              Solicitar registro
+            </Link>
+          </div>
+        </div>
+
+        <p className="mt-6 text-center text-xs text-gray-400">
+          © {new Date().getFullYear()} CRM Fichajes
+        </p>
+      </div>
     </div>
   );
 }
