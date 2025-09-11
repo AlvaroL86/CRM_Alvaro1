@@ -1,0 +1,8 @@
+(
+echo **/node_modules
+echo *.zip
+echo fichaje-api/uploads
+echo .env
+echo fichaje-api/.env*
+echo crm-fichajes/.env*
+) > .gitignore
