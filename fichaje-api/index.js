@@ -13,12 +13,23 @@ const authMW = require('./middleware/auth');
 
 const app = express();
 
-/* -------------------- Middlewares base -------------------- */
+/* -------------------- CORS con varios orígenes -------------------- */
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  origin: (origin, cb) => {
+    // Permite llamadas server-to-server (sin Origin) y desde orígenes permitidos
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    return cb(new Error('CORS: origin not allowed'), false);
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   credentials: false, // usamos Bearer token, no cookies
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+
 app.use(express.json());
 
 // estáticos de uploads
@@ -78,7 +89,7 @@ if (chatRoute)      mount('/chat',      authMW, chatRoute);
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+    origin: allowedOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
   },
 });
@@ -109,7 +120,6 @@ io.on('connection', (socket) => {
   socket.on('chat:join', (payload) => {
     const roomId = typeof payload === 'string' ? payload : payload?.roomId || 'general';
     socket.join(roomId);
-    // En el flujo nuevo el histórico viene por REST; aquí sólo compat
     const hist = history.get(roomId) || [];
     hist.forEach((m) => {
       socket.emit('chat:message', {

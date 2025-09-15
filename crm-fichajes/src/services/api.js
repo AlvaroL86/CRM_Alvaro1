@@ -1,13 +1,23 @@
+// crm-fichajes/src/services/api.js
 import axios from "axios";
 
 /* ========= Config base ========= */
-const DEFAULT_API_URL = "http://localhost:3000";
+// Dominio de la API en producción (Render)
+const PROD_API_URL = "https://fichaje-api-yujp.onrender.com";
+
+// Si estás en dev => localhost; en prod => Render (por si falla el env)
+const DEFAULT_API_URL = (import.meta?.env?.DEV)
+  ? "http://localhost:3000"
+  : PROD_API_URL;
+
+// Variables de entorno de Vite (Netlify/CI); usan prefijo VITE_
 const ENV_BASE_URL =
   import.meta?.env?.VITE_API_URL ||
   import.meta?.env?.VITE_API_BASE_URL ||
   null;
 
-export const BASE_URL = ENV_BASE_URL || DEFAULT_API_URL;
+// URL final
+export const BASE_URL = (ENV_BASE_URL?.trim()) || DEFAULT_API_URL;
 
 /* ========= Token helpers ========= */
 const TOKEN_KEYS = ["crm_token", "user_token", "token"];
@@ -21,7 +31,7 @@ export function readToken() {
       if (typeof maybeObj === "string") return maybeObj;                 // "xxx.yyy.zzz"
       if (maybeObj && typeof maybeObj.token === "string") return maybeObj.token; // { token: "..." }
     } catch {
-      // no es JSON -> es el token directo
+      // texto plano -> token directo
       return raw;
     }
   }
@@ -48,7 +58,7 @@ export function getAuthHeaders(extra = {}) {
 /* ========= Axios instance ========= */
 export const http = axios.create({
   baseURL: BASE_URL,
-  withCredentials: false, // cámbialo a true si tu backend usa cookies
+  withCredentials: false, // usamos bearer, no cookies
 });
 
 // Adjunta token en cada request
