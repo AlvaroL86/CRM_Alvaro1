@@ -1,8 +1,13 @@
-(
-echo **/node_modules
-echo *.zip
-echo fichaje-api/uploads
-echo .env
-echo fichaje-api/.env*
-echo crm-fichajes/.env*
-) > .gitignore
+# Comunes
+*.zip
+.env
+
+# Frontend
+crm-fichajes/node_modules/
+crm-fichajes/dist/
+crm-fichajes/.env*
+
+# Backend
+fichaje-api/node_modules/
+fichaje-api/uploads/
+fichaje-api/.env*
