@@ -520,7 +520,9 @@ CREATE TABLE `usuarios` (
   `telefono` varchar(20) DEFAULT NULL,
   `rol` enum('admin','empleado','supervisor') DEFAULT 'empleado',
   `estado` tinyint(1) DEFAULT 1,
+  `avatar_url` varchar(255) DEFAULT NULL,
   `fecha_registro` datetime DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
   `password` varchar(255) NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `username` (`username`),
@@ -536,7 +538,7 @@ CREATE TABLE `usuarios` (
 
 LOCK TABLES `usuarios` WRITE;
 /*!40000 ALTER TABLE `usuarios` DISABLE KEYS */;
-INSERT INTO `usuarios` VALUES ('5ecdc144-41fc-11f0-a28e-ff948e6a3801','admin01','Laura Martínez','laura.admin@empresa.com','2025-09-14 12:19:15','18047463F','600123456','admin',1,'2025-06-05 13:01:02','$2b$10$NYavjov5la9t0rUciWtqM.xkrmiFB2KlsN.KAOGH0lE1HIX8dnAC2'),('5ecde6f5-41fc-11f0-a28e-ff948e6a3801','empleado01','Carlos Pérez','carlos@empresa.com',NULL,'18047463F','600654321','empleado',1,'2025-06-05 13:01:02','<HASH_QUE_COPIASTE>'),('5ecde794-41fc-11f0-a28e-ff948e6a3801','supervisor01','Marta López','marta@empresa.com',NULL,'18047463F','611223344','supervisor',1,'2025-06-05 13:01:02','<HASH_QUE_COPIASTE>');
+INSERT INTO `usuarios` VALUES ('5ecdc144-41fc-11f0-a28e-ff948e6a3801','admin01','Laura Martínez','laura.admin@empresa.com','2025-09-16 11:29:00','18047463F','600123456','admin',1,NULL,'2025-06-05 13:01:02',NULL,'$2b$10$NYavjov5la9t0rUciWtqM.xkrmiFB2KlsN.KAOGH0lE1HIX8dnAC2'),('5ecde6f5-41fc-11f0-a28e-ff948e6a3801','empleado01','Carlos Pérez','carlos@empresa.com',NULL,'18047463F','600654321','empleado',1,NULL,'2025-06-05 13:01:02',NULL,'<HASH_QUE_COPIASTE>'),('5ecde794-41fc-11f0-a28e-ff948e6a3801','supervisor01','Marta López','marta@empresa.com',NULL,'18047463F','611223344','supervisor',1,NULL,'2025-06-05 13:01:02',NULL,'<HASH_QUE_COPIASTE>');
 /*!40000 ALTER TABLE `usuarios` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -557,4 +559,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-09-15 13:56:30
+-- Dump completed on 2025-09-16 12:29:58

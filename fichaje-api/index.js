@@ -31,6 +31,8 @@ app.use(cors({
 }));
 
 app.use(express.json());
+app.use('/auth', require('./routes/auth'));
+app.use('/usuarios', require('./routes/usuarios'));
 
 // estáticos de uploads
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -244,4 +246,12 @@ app.get('/chat/messages/:room', (req, res) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`✅ API escuchando en http://localhost:${PORT}`);
+});
+app.get('/health', async (_req, res) => {
+  try {
+    const [[row]] = await db.query('SELECT DATABASE() AS db, @@port AS port');
+    res.json({ ok: true, db: row.db, port: row.port });
+  } catch (e) {
+    res.status(500).json({ ok:false, error: e.message });
+  }
 });

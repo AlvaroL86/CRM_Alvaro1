@@ -1,18 +1,15 @@
-// src/pages/Login.jsx
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { apiPost } from "../services/api";
 
-// Marca configurable por .env
 const BRAND = import.meta.env.VITE_BRAND || "Alvaro";
-const BRAND_LOGO = import.meta.env.VITE_BRAND_LOGO || ""; // URL opcional
+const BRAND_LOGO = import.meta.env.VITE_BRAND_LOGO || "";
 
 export default function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
 
-  // Defaults que ya usabas
   const [username, setUsername] = useState("admin01");
   const [password, setPassword] = useState("1234");
   const [showPwd, setShowPwd] = useState(false);
@@ -29,32 +26,26 @@ export default function Login() {
       }
       setLoading(true);
 
-      // Ajusta la ruta/campos si tu backend usa otros nombres
       const body = { username: username.trim(), password };
       const data = await apiPost("/auth/login", body);
-
-      // Normalizamos posibles formatos de respuesta
-      if (data?.ok === false) throw new Error(data.error || "No autorizado");
+      console.log("[login] resp:", data);
 
       const token =
         data?.token || data?.access_token || data?.jwt || data?.data?.token;
       const user =
-        data?.user ||
-        data?.usuario ||
-        data?.data?.user ||
-        data?.data?.usuario;
+        data?.user || data?.usuario || data?.data?.user || data?.data?.usuario;
 
-      if (!token || !user) {
-        throw new Error("Respuesta de login inválida");
+      if (!token || typeof token !== "string" || !token.includes(".")) {
+        throw new Error("Respuesta inválida del servidor (sin token).");
+      }
+      if (!user?.id) {
+        throw new Error("Respuesta inválida del servidor (sin usuario).");
       }
 
-      // Guarda en AuthContext (+ localStorage dentro del provider)
       login(user, token);
-
-      // Redirige a dashboard
-      navigate("/dashboard", { replace: true });
+      navigate("/admin/users", { replace: true });
     } catch (e) {
-      setErr(e.message || "Error de acceso");
+      setErr(e?.message || "Error interno");
     } finally {
       setLoading(false);
     }
@@ -63,14 +54,9 @@ export default function Login() {
   return (
     <div className="min-h-screen grid place-items-center bg-gray-50 px-4">
       <div className="w-full max-w-md">
-        {/* Encabezado adaptable */}
         <div className="text-center mb-6">
           {BRAND_LOGO ? (
-            <img
-              src={BRAND_LOGO}
-              alt={BRAND}
-              className="mx-auto h-12 w-auto object-contain"
-            />
+            <img src={BRAND_LOGO} alt={BRAND} className="mx-auto h-12 w-auto object-contain" />
           ) : (
             <span className="inline-flex items-center rounded-full bg-blue-600 text-white px-3 py-1 text-sm font-semibold">
               {import.meta.env.MODE === "development" ? BRAND : "CRM"}
@@ -89,9 +75,7 @@ export default function Login() {
 
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Usuario
-              </label>
+              <label className="block text-sm font-medium text-gray-700">Usuario</label>
               <input
                 type="text"
                 autoComplete="username"
@@ -103,9 +87,7 @@ export default function Login() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Contraseña
-              </label>
+              <label className="block text-sm font-medium text-gray-700">Contraseña</label>
               <div className="mt-1 relative">
                 <input
                   type={showPwd ? "text" : "password"}
@@ -137,16 +119,10 @@ export default function Login() {
           </form>
 
           <div className="mt-6 flex items-center justify-between text-sm">
-            <Link
-              to="/forgot"
-              className="text-blue-600 hover:text-blue-700 hover:underline"
-            >
+            <Link to="/forgot" className="text-blue-600 hover:text-blue-700 hover:underline">
               Olvidé mi contraseña
             </Link>
-            <Link
-              to="/request-access"
-              className="text-blue-600 hover:text-blue-700 hover:underline"
-            >
+            <Link to="/request-access" className="text-blue-600 hover:text-blue-700 hover:underline">
               Solicitar registro
             </Link>
           </div>

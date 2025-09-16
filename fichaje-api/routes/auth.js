@@ -5,7 +5,8 @@ const db = require('../db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const verificarToken = require('../middleware/auth');
-const crypto = require('crypto');
+
+const JWT_SECRET = process.env.JWT_SECRET || 'secretito';
 
 // POST /auth/login
 router.post('/login', async (req, res) => {
@@ -26,13 +27,11 @@ router.post('/login', async (req, res) => {
     if (!ok) return res.status(401).json({ error: 'Credenciales inválidas' });
 
     const token = jwt.sign(
-      // ⬇⬇⬇ OPCIONAL: incluir nif para que el middleware no tenga que consultarlo
-      { id: u.id, username: u.username, rol: u.rol, nif: u.nif },
-      process.env.JWT_SECRET || 'secretito',
+      { id: u.id, username: u.username, rol: u.rol, nif: u.nif || null },
+      JWT_SECRET,
       { expiresIn: '12h' }
     );
 
-    // (opcional) marca presencia al loguear
     try { await db.query('UPDATE usuarios SET last_seen = NOW() WHERE id=?', [u.id]); } catch {}
 
     res.json({
@@ -44,8 +43,8 @@ router.post('/login', async (req, res) => {
         email: u.email,
         telefono: u.telefono,
         rol: u.rol,
-        nif: u.nif
-      }
+        nif: u.nif || null,
+      },
     });
   } catch (e) {
     console.error('POST /auth/login', e);
@@ -53,74 +52,16 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// GET /auth/me
+// GET /auth/me  -> devuelve el usuario actual (necesita Authorization: Bearer <token>)
 router.get('/me', verificarToken, async (req, res) => {
-  const { id } = req.usuario;
-  const [rows] = await db.query(
-    'SELECT id, username, nombre, email, telefono, rol, nif FROM usuarios WHERE id=?',
-    [id]
-  );
-  res.json(rows[0] || null);
-});
-
-// PUT /auth/profile
-router.put('/profile', verificarToken, async (req, res) => {
-  const { id } = req.usuario;
-  const { nombre, email, telefono, password } = req.body || {};
-
   try {
-    if (password) {
-      const hash = await bcrypt.hash(password, 10);
-      await db.query(
-        'UPDATE usuarios SET nombre=?, email=?, telefono=?, password=? WHERE id=?',
-        [nombre || null, email || null, telefono || null, hash, id]
-      );
-    } else {
-      await db.query(
-        'UPDATE usuarios SET nombre=?, email=?, telefono=? WHERE id=?',
-        [nombre || null, email || null, telefono || null, id]
-      );
-    }
-    res.json({ ok: true });
-  } catch (e) {
-    console.error('PUT /auth/profile', e);
-    res.status(500).json({ error: 'Error interno' });
-  }
-});
-
-// POST /auth/register-request
-router.post('/register-request', async (req, res) => {
-  try {
-    const { nombre, apellidos, telefono, email } = req.body || {};
-    if (!nombre || !apellidos || !telefono || !email) {
-      return res.status(400).json({ error: 'Datos incompletos' });
-    }
-    await db.query(
-      'INSERT INTO register_requests (nombre, apellidos, telefono, email) VALUES (?,?,?,?)',
-      [nombre, apellidos, telefono, email]
+    const [[u]] = await db.query(
+      'SELECT id, username, nombre, email, telefono, rol, nif FROM usuarios WHERE id=? LIMIT 1',
+      [req.usuario.id]
     );
-    res.json({ ok: true });
+    res.json(u || null);
   } catch (e) {
-    console.error('POST /auth/register-request', e);
-    res.status(500).json({ error: 'Error interno' });
-  }
-});
-
-// POST /auth/forgot
-router.post('/forgot', async (req, res) => {
-  try {
-    const { email } = req.body || {};
-    if (!email) return res.status(400).json({ error: 'Email requerido' });
-
-    const [u] = await db.query('SELECT id FROM usuarios WHERE email=? LIMIT 1', [email]);
-    const token = crypto.randomBytes(32).toString('hex');
-    await db.query(
-      'INSERT INTO password_resets (user_id, email, token) VALUES (?,?,?)',
-      [u.length ? u[0].id : null, email, token]
-    );
-    res.json({ ok: true });
-  } catch (e) {
-    console.error('POST /auth/forgot', e);
+    console.error('GET /auth/me', e);
     res.status(500).json({ error: 'Error interno' });
   }
 });

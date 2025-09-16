@@ -21,6 +21,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = (u, t) => {
+    // Guarda SIEMPRE crm_token (tu api.js lo lee)
     setUser(u);
     setToken(t);
     localStorage.setItem("crm_user", JSON.stringify(u));

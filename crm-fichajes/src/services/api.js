@@ -1,23 +1,26 @@
 // crm-fichajes/src/services/api.js
 import axios from "axios";
 
-/* ========= Config base ========= */
-// Dominio de la API en producción (Render)
+/* ========= Selección robusta de BASE_URL ========= */
 const PROD_API_URL = "https://fichaje-api-yujp.onrender.com";
 
-// Si estás en dev => localhost; en prod => Render (por si falla el env)
-const DEFAULT_API_URL = (import.meta?.env?.DEV)
-  ? "http://localhost:3000"
-  : PROD_API_URL;
-
-// Variables de entorno de Vite (Netlify/CI); usan prefijo VITE_
+// 1) Lo que venga de Vite (.env)
 const ENV_BASE_URL =
-  import.meta?.env?.VITE_API_URL ||
-  import.meta?.env?.VITE_API_BASE_URL ||
-  null;
+  (import.meta?.env?.VITE_API_URL || import.meta?.env?.VITE_API_BASE_URL || "").trim();
 
-// URL final
-export const BASE_URL = (ENV_BASE_URL?.trim()) || DEFAULT_API_URL;
+// 2) Si estamos en dev, por defecto localhost
+const DEFAULT_API_URL = import.meta?.env?.DEV ? "http://localhost:3000" : PROD_API_URL;
+
+// 3) Forzar localhost si la app corre en localhost
+const runningLocal =
+  location.hostname === "localhost" || location.hostname === "127.0.0.1";
+
+let BASE = ENV_BASE_URL || DEFAULT_API_URL;
+if (runningLocal && !BASE.startsWith("http://localhost")) {
+  BASE = "http://localhost:3000";
+}
+
+export const BASE_URL = BASE;
 
 /* ========= Token helpers ========= */
 const TOKEN_KEYS = ["crm_token", "user_token", "token"];
@@ -28,46 +31,37 @@ export function readToken() {
     if (!raw) continue;
     try {
       const maybeObj = JSON.parse(raw);
-      if (typeof maybeObj === "string") return maybeObj;                 // "xxx.yyy.zzz"
-      if (maybeObj && typeof maybeObj.token === "string") return maybeObj.token; // { token: "..." }
+      if (typeof maybeObj === "string") return maybeObj;
+      if (maybeObj && typeof maybeObj.token === "string") return maybeObj.token;
     } catch {
-      // texto plano -> token directo
-      return raw;
+      return raw; // texto plano
     }
   }
   return null;
 }
-
 export const getToken = readToken;
 
 export function saveToken(token) {
   localStorage.setItem("crm_token", token);
 }
-
 export function clearToken() {
   for (const k of TOKEN_KEYS) localStorage.removeItem(k);
   localStorage.removeItem("crm_user");
 }
 
-/* ========= Headers con Authorization ========= */
-export function getAuthHeaders(extra = {}) {
-  const t = readToken();
-  return t ? { Authorization: `Bearer ${t}`, ...extra } : { ...extra };
-}
-
-/* ========= Axios instance ========= */
+/* ========= Axios ========= */
 export const http = axios.create({
   baseURL: BASE_URL,
-  withCredentials: false, // usamos bearer, no cookies
+  withCredentials: false,
 });
 
-// Adjunta token en cada request
 http.interceptors.request.use((cfg) => {
-  cfg.headers = { ...(cfg.headers || {}), ...getAuthHeaders(cfg.headers) };
+  const t = readToken();
+  cfg.headers = { ...(cfg.headers || {}) };
+  if (t) cfg.headers.Authorization = `Bearer ${t}`;
   return cfg;
 });
 
-// Manejo global de respuestas/errores
 http.interceptors.response.use(
   (res) => res,
   (error) => {
@@ -84,12 +78,11 @@ http.interceptors.response.use(
         location.replace("/unauthorized");
       }
     }
-
     return Promise.reject(new Error(message));
   }
 );
 
-/* ========= API helpers ========= */
+/* ========= helpers ========= */
 export async function apiGet(path, config = {}) {
   const { data } = await http.get(path, config);
   return data;
@@ -106,15 +99,12 @@ export async function apiDelete(path, config = {}) {
   const { data } = await http.delete(path, config);
   return data;
 }
-
 export async function apiUpload(path, formData, config = {}) {
   const { data } = await http.post(path, formData, { ...config });
   return data;
 }
-
 export async function apiDownload(path, config = {}) {
   const res = await http.get(path, { responseType: "blob", ...config });
-  return res.data; // Blob
+  return res.data;
 }
-
 export default http;

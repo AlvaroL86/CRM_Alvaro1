@@ -1,11 +1,10 @@
 // fichaje-api/middleware/auth.js
-const jwt = require('jsonwebtoken');
+const { verify } = require('../lib/jwt');
 const db = require('../db');
 
 async function touchLastSeen(userId) {
   try {
     if (!userId) return;
-    // Si no existe la columna, ignoramos el error
     await db.query(`UPDATE usuarios SET last_seen = NOW() WHERE id=?`, [userId]);
   } catch (e) {
     if (e?.code !== 'ER_BAD_FIELD_ERROR') {
@@ -14,7 +13,6 @@ async function touchLastSeen(userId) {
   }
 }
 
-// Middleware de verificación de token
 module.exports = async function verificarToken(req, res, next) {
   try {
     const auth = req.headers['authorization'] || '';
@@ -22,9 +20,10 @@ module.exports = async function verificarToken(req, res, next) {
     const token = bearer || req.query?.token || req.body?.token;
     if (!token) return res.status(401).json({ error: 'No autorizado' });
 
-    const payload = jwt.verify(token, process.env.JWT_SECRET || 'secretito'); // {id, username, rol, [nif]}
+    // 1) Verifica token (misma secret que en login)
+    const payload = verify(token); // { id, username, rol, nif? }
 
-    // Asegurar NIF (muchas rutas lo usan)
+    // 2) Asegura NIF (muchas rutas lo usan)
     let nif = payload.nif || null;
     if (!nif && payload.id) {
       try {
@@ -40,7 +39,7 @@ module.exports = async function verificarToken(req, res, next) {
       nif,
     };
 
-    // Actualiza presencia sin bloquear
+    // 3) Presencia (no bloquea)
     touchLastSeen(req.usuario.id);
 
     next();
