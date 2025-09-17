@@ -87,3 +87,4 @@ export default function Dashboard() {
   return <h2 className="text-2xl font-bold">Dashboard</h2>;
 }
 // Cambia el nombre a AdminPanel, Users, AusenciasPage, etc según el archivo
+

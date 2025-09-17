@@ -1,4 +1,5 @@
 // src/pages/Users.jsx (o donde viva tu ruta /admin/users)
+console.log("[Users] mounted");
 import { useEffect, useState } from "react";
 import { apiGet, apiPost, apiPut, apiDelete, BASE_URL as API_BASE } from "../services/api";
 

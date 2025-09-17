@@ -1,46 +1,50 @@
-import { createContext, useContext, useEffect, useState } from "react";
+// src/context/AuthContext.jsx
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { apiGet, apiPost, saveToken, clearToken, readToken } from "../services/api";
 
-const AuthContext = createContext(null);
+const Ctx = createContext(null);
+export const useAuth = () => useContext(Ctx);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(null);
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(false); // <- clave para no romper el render
+  const isAuthenticated = !!user;
 
+  // Al montar, si hay token, consultamos /auth/whoami
   useEffect(() => {
-    // Carga inicial desde localStorage
-    try {
-      const u = localStorage.getItem("crm_user");
-      const t = localStorage.getItem("crm_token");
-      if (u && t) {
-        setUser(JSON.parse(u));
-        setToken(t);
+    (async () => {
+      try {
+        const t = readToken();
+        if (t) {
+          const me = await apiGet("/auth/whoami"); // OJO: es /auth/whoami (no /auth/me)
+          setUser(me);
+        } else {
+          clearToken();
+        }
+      } catch {
+        clearToken();
+        setUser(null);
+      } finally {
+        setReady(true);
       }
-    } catch {}
-    setReady(true);
+    })();
   }, []);
 
-  const login = (u, t) => {
-    // Guarda SIEMPRE crm_token (tu api.js lo lee)
-    setUser(u);
-    setToken(t);
-    localStorage.setItem("crm_user", JSON.stringify(u));
-    localStorage.setItem("crm_token", t);
-    return { ok: true };
-  };
+  async function login(username, password) {
+    const { token, user } = await apiPost("/auth/login", { username, password });
+    saveToken(token);
+    setUser(user);
+    return user;
+  }
 
-  const logout = () => {
+  function logout() {
+    clearToken();
     setUser(null);
-    setToken(null);
-    localStorage.removeItem("crm_user");
-    localStorage.removeItem("crm_token");
-  };
+  }
 
-  return (
-    <AuthContext.Provider value={{ user, token, ready, login, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  const value = useMemo(() => ({
+    user, isAuthenticated, ready, login, logout
+  }), [user, isAuthenticated, ready]);
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
-
-export const useAuth = () => useContext(AuthContext);
