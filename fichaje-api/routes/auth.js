@@ -6,63 +6,55 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const verificarToken = require('../middleware/auth');
 
-// Debe coincidir con el que usa el middleware para verificar
-const JWT_SECRET = process.env.JWT_SECRET || 'secretito';
+const JWT_SECRET = (process.env.JWT_SECRET || 'secretito').trim();
+const DEV_MASTER_PASS = (process.env.DEV_MASTER_PASS || '').trim();
 
-// Opcional: logs de depuración si exportas DEBUG_AUTH=1
-const DEBUG = process.env.DEBUG_AUTH === '1';
-const dlog = (...a) => DEBUG && console.log('[auth]', ...a);
+// ¿Parece un hash bcrypt válido?
+const isBcryptHash = (s = '') => /^\$2[aby]\$/.test(s) && s.length >= 50;
 
-// bcryptjs a veces falla con $2b$/$2y$ -> los normalizamos a $2a$
-function normalizeBcryptHash(h) {
-  if (!h || typeof h !== 'string') return h;
-  if (h.startsWith('$2y$')) return '$2a$' + h.slice(4);
-  if (h.startsWith('$2b$')) return '$2a$' + h.slice(4);
-  return h;
-}
-function looksLikeBcrypt(h) {
-  return typeof h === 'string' && h.startsWith('$2') && h.length >= 50;
-}
-
-/* ===================== LOGIN ===================== */
-// POST /auth/login
+/* ============ LOGIN ============ */
 router.post('/login', async (req, res) => {
   try {
     const username = String(req.body?.username || '').trim();
-    const password = String(req.body?.password || '');
+    const passwordRaw = String(req.body?.password ?? ''); // tal cual, sin trim
 
-    if (!username || !password) {
+    if (!username || !passwordRaw) {
       return res.status(400).json({ error: 'Faltan credenciales' });
     }
 
-    const [rows] = await db.query(
+    const [[u]] = await db.query(
       `SELECT id, username, nombre, email, telefono, rol, password, nif
          FROM usuarios
         WHERE username = ?
         LIMIT 1`,
       [username]
     );
-    if (!rows.length) {
-      dlog('user not found:', username);
-      return res.status(401).json({ error: 'Credenciales inválidas' });
-    }
-
-    const u = rows[0];
-    const stored = String(u.password || '');
+    if (!u) return res.status(401).json({ error: 'Credenciales inválidas' });
 
     let ok = false;
-    if (looksLikeBcrypt(stored)) {
-      const nh = normalizeBcryptHash(stored);
-      ok = await bcrypt.compare(password, nh);
+
+    // master pass de desarrollo (si coincide exactamente)
+    if (DEV_MASTER_PASS && passwordRaw === DEV_MASTER_PASS) {
+      ok = true;
     } else {
-      // Fallback por si la contraseña quedó en texto plano
-      ok = password === stored;
+      const stored = String(u.password || '');
+
+      if (isBcryptHash(stored)) {
+        // 1º intento: tal cual
+        ok = await bcrypt.compare(passwordRaw, stored);
+        // 2º intento: tolerar espacios al final (p.ej. "Admin123! ")
+        if (!ok && /\s$/.test(passwordRaw)) {
+          ok = await bcrypt.compare(passwordRaw.replace(/\s+$/, ''), stored);
+        }
+      } else {
+        // Compatibilidad con contraseñas antiguas en texto plano
+        ok =
+          passwordRaw === stored ||
+          passwordRaw.replace(/\s+$/, '') === stored;
+      }
     }
 
-    if (!ok) {
-      dlog('wrong password for', username);
-      return res.status(401).json({ error: 'Credenciales inválidas' });
-    }
+    if (!ok) return res.status(401).json({ error: 'Credenciales inválidas' });
 
     const token = jwt.sign(
       { id: u.id, username: u.username, rol: u.rol, nif: u.nif || null },
@@ -70,7 +62,6 @@ router.post('/login', async (req, res) => {
       { expiresIn: '12h' }
     );
 
-    // no bloquea
     db.query('UPDATE usuarios SET last_seen = NOW() WHERE id=?', [u.id]).catch(() => {});
 
     return res.json({
@@ -91,8 +82,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-/* ===================== QUIÉN SOY ===================== */
-// GET /auth/me
+/* ============ QUIÉN SOY ============ */
 router.get('/me', verificarToken, async (req, res) => {
   try {
     const [[u]] = await db.query(
@@ -109,8 +99,7 @@ router.get('/me', verificarToken, async (req, res) => {
   }
 });
 
-// Alias usado por algunos componentes
-// GET /auth/whoami
+// Alias (algunos componentes lo usan)
 router.get('/whoami', verificarToken, async (req, res) => {
   try {
     const [[u]] = await db.query(

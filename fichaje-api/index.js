@@ -7,11 +7,17 @@ const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const db = require('./db');
+const app = express();
+const ORIGINS = (process.env.CORS_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean);
+
+app.use(cors({ origin: ORIGINS.length ? ORIGINS : true }));
+app.use(express.json()); // <- SIN ESTO no llega el body y login siempre 400/401
+
+
 
 // Tu middleware auth EXPORTA UNA FUNCIÓN (module.exports = async (req,res,next)=>{})
 const authMW = require('./middleware/auth');
 
-const app = express();
 
 /* -------------------- CORS con varios orígenes -------------------- */
 const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
@@ -30,9 +36,12 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-app.use(express.json());
-app.use('/auth', require('./routes/auth'));
+app.use('/auth', require('./routes/auth')); // <- usa ESTE auth.js
+app.use('/clientes', require('./routes/clientes'));
 app.use('/usuarios', require('./routes/usuarios'));
+app.use('/fichajes', require('./routes/fichajes'));
+app.use('/roles', require('./routes/roles'));
+
 
 // estáticos de uploads
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));

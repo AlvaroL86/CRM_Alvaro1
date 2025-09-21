@@ -1,110 +1,104 @@
-// crm-fichajes/src/services/api.js
-import axios from "axios";
+// /src/services/api.js
+// ====================================================
+// Utilidades de API + almacenamiento de token/usuario
+// ====================================================
 
-/* ========= Selección robusta de BASE_URL ========= */
-const PROD_API_URL = "https://fichaje-api-yujp.onrender.com";
+// IMPORTANTE: ahora exportamos BASE_URL
+export const BASE_URL = (
+  import.meta.env.VITE_API_URL || "http://localhost:3000"
+).replace(/\/$/, "");
 
-// 1) Lo que venga de Vite (.env)
-const ENV_BASE_URL =
-  (import.meta?.env?.VITE_API_URL || import.meta?.env?.VITE_API_BASE_URL || "").trim();
+const TOKEN_KEY = "crm_token";
+const USER_KEY = "crm_user";
 
-// 2) Si estamos en dev, por defecto localhost
-const DEFAULT_API_URL = import.meta?.env?.DEV ? "http://localhost:3000" : PROD_API_URL;
+// ---------------------
+// Storage helpers
+// ---------------------
+export const saveToken = (token, user) => {
+  try {
+    if (typeof token === "string") localStorage.setItem(TOKEN_KEY, token);
+    if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
+  } catch {}
+};
 
-// 3) Forzar localhost si la app corre en localhost
-const runningLocal =
-  location.hostname === "localhost" || location.hostname === "127.0.0.1";
+export const readToken = () => {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || "";
+  } catch {
+    return "";
+  }
+};
 
-let BASE = ENV_BASE_URL || DEFAULT_API_URL;
-if (runningLocal && !BASE.startsWith("http://localhost")) {
-  BASE = "http://localhost:3000";
-}
+export const clearToken = () => {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+  } catch {}
+};
 
-export const BASE_URL = BASE;
+export const saveUser = (user) => {
+  try {
+    if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
+  } catch {}
+};
 
-/* ========= Token helpers ========= */
-const TOKEN_KEYS = ["crm_token", "user_token", "token"];
+export const readUser = () => {
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
 
-export function readToken() {
-  for (const key of TOKEN_KEYS) {
-    const raw = localStorage.getItem(key);
-    if (!raw) continue;
+// ---------------------
+// Wrapper de fetch
+// ---------------------
+async function request(method, path, body) {
+  const headers = {};
+  const token = readToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  let payload;
+  if (body instanceof FormData) {
+    payload = body; // NO poner Content-Type; el navegador se encarga
+  } else if (body !== undefined && body !== null) {
+    headers["Content-Type"] = "application/json";
+    payload = JSON.stringify(body);
+  }
+
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method,
+    headers,
+    body: payload,
+  });
+
+  const text = await res.text();
+  let data = null;
+  if (text) {
     try {
-      const maybeObj = JSON.parse(raw);
-      if (typeof maybeObj === "string") return maybeObj;
-      if (maybeObj && typeof maybeObj.token === "string") return maybeObj.token;
+      data = JSON.parse(text);
     } catch {
-      return raw; // texto plano
+      data = text;
     }
   }
-  return null;
-}
-export const getToken = readToken;
 
-export function saveToken(token) {
-  localStorage.setItem("crm_token", token);
-}
-export function clearToken() {
-  for (const k of TOKEN_KEYS) localStorage.removeItem(k);
-  localStorage.removeItem("crm_user");
-}
-
-/* ========= Axios ========= */
-export const http = axios.create({
-  baseURL: BASE_URL,
-  withCredentials: false,
-});
-
-http.interceptors.request.use((cfg) => {
-  const t = readToken();
-  cfg.headers = { ...(cfg.headers || {}) };
-  if (t) cfg.headers.Authorization = `Bearer ${t}`;
-  return cfg;
-});
-
-http.interceptors.response.use(
-  (res) => res,
-  (error) => {
-    const status = error?.response?.status;
-    const data = error?.response?.data;
-    const message =
-      data?.error || data?.message || error?.message || `HTTP ${status || ""}`;
-
-    if (status === 401) {
-      clearToken();
-      if (!location.pathname.startsWith("/login")) location.replace("/login");
-    } else if (status === 403) {
-      if (!location.pathname.startsWith("/unauthorized")) {
-        location.replace("/unauthorized");
-      }
-    }
-    return Promise.reject(new Error(message));
+  if (!res.ok) {
+    const msg =
+      (data && (data.error || data.message)) ||
+      `HTTP ${res.status} ${res.statusText}`;
+    throw new Error(msg);
   }
-);
 
-/* ========= helpers ========= */
-export async function apiGet(path, config = {}) {
-  const { data } = await http.get(path, config);
   return data;
 }
-export async function apiPost(path, body = {}, config = {}) {
-  const { data } = await http.post(path, body, config);
-  return data;
-}
-export async function apiPut(path, body = {}, config = {}) {
-  const { data } = await http.put(path, body, config);
-  return data;
-}
-export async function apiDelete(path, config = {}) {
-  const { data } = await http.delete(path, config);
-  return data;
-}
-export async function apiUpload(path, formData, config = {}) {
-  const { data } = await http.post(path, formData, { ...config });
-  return data;
-}
-export async function apiDownload(path, config = {}) {
-  const res = await http.get(path, { responseType: "blob", ...config });
-  return res.data;
-}
-export default http;
+
+// ---------------------
+// Helpers HTTP
+// ---------------------
+export const apiGet = (path) => request("GET", path);
+export const apiPost = (path, body) => request("POST", path, body);
+export const apiPut = (path, body) => request("PUT", path, body);
+export const apiPatch = (path, body) => request("PATCH", path, body);
+export const apiDelete = (path, body) => request("DELETE", path, body);
+export const apiDel = apiDelete; // alias opcional

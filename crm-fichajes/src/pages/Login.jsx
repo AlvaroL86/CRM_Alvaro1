@@ -1,9 +1,9 @@
+// src/pages/Login.jsx
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { apiPost } from "../services/api";
 
-const BRAND = import.meta.env.VITE_BRAND || "Alvaro";
+const BRAND = import.meta.env.VITE_BRAND || "CRM";
 const BRAND_LOGO = import.meta.env.VITE_BRAND_LOGO || "";
 
 export default function Login() {
@@ -11,41 +11,27 @@ export default function Login() {
   const { login } = useAuth();
 
   const [username, setUsername] = useState("admin01");
-  const [password, setPassword] = useState("1234");
+  const [password, setPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
   async function onSubmit(e) {
     e.preventDefault();
+    setErr("");
+
+    // username puede trim; password va TAL CUAL
+    if (!username.trim() || password === "") {
+      setErr("Usuario y contraseña son obligatorios.");
+      return;
+    }
+
     try {
-      setErr("");
-      if (!username.trim() || !password.trim()) {
-        setErr("Usuario y contraseña son obligatorios.");
-        return;
-      }
       setLoading(true);
-
-      const body = { username: username.trim(), password };
-      const data = await apiPost("/auth/login", body);
-      console.log("[login] resp:", data);
-
-      const token =
-        data?.token || data?.access_token || data?.jwt || data?.data?.token;
-      const user =
-        data?.user || data?.usuario || data?.data?.user || data?.data?.usuario;
-
-      if (!token || typeof token !== "string" || !token.includes(".")) {
-        throw new Error("Respuesta inválida del servidor (sin token).");
-      }
-      if (!user?.id) {
-        throw new Error("Respuesta inválida del servidor (sin usuario).");
-      }
-
-      login(user, token);
+      await login(username, password); // el context hace la llamada y guarda token
       navigate("/admin/users", { replace: true });
     } catch (e) {
-      setErr(e?.message || "Error interno");
+      setErr(e?.message || "Credenciales inválidas");
     } finally {
       setLoading(false);
     }
@@ -56,10 +42,10 @@ export default function Login() {
       <div className="w-full max-w-md">
         <div className="text-center mb-6">
           {BRAND_LOGO ? (
-            <img src={BRAND_LOGO} alt={BRAND} className="mx-auto h-12 w-auto object-contain" />
+            <img src={BRAND_LOGO} alt={BRAND} className="mx-auto h-12 w-auto" />
           ) : (
             <span className="inline-flex items-center rounded-full bg-blue-600 text-white px-3 py-1 text-sm font-semibold">
-              {import.meta.env.MODE === "development" ? BRAND : "CRM"}
+              {BRAND}
             </span>
           )}
           <h1 className="mt-3 text-2xl font-bold text-gray-900">CRM Fichajes</h1>
@@ -95,7 +81,7 @@ export default function Login() {
                   className="w-full rounded-lg border-gray-300 pr-10 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="••••••••"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => setPassword(e.target.value)} // SIN trim
                 />
                 <button
                   type="button"
@@ -119,10 +105,10 @@ export default function Login() {
           </form>
 
           <div className="mt-6 flex items-center justify-between text-sm">
-            <Link to="/forgot" className="text-blue-600 hover:text-blue-700 hover:underline">
+            <Link to="/forgot" className="text-blue-600 hover:underline">
               Olvidé mi contraseña
             </Link>
-            <Link to="/request-access" className="text-blue-600 hover:text-blue-700 hover:underline">
+            <Link to="/request-access" className="text-blue-600 hover:underline">
               Solicitar registro
             </Link>
           </div>

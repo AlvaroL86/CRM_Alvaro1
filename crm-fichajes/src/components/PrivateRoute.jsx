@@ -1,25 +1,20 @@
 // src/components/PrivateRoute.jsx
-import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 export default function PrivateRoute({ roles, children }) {
-  const { ready, isAuthenticated, user } = useAuth(); // <- sin optional chaining
-  const location = useLocation();
+  const { user, isAuthenticated, ready } = useAuth() || {};
 
-  // Mientras AuthContext comprueba el token, no renderizamos nada
-  if (!ready) return null; // o un spinner si quieres
+  // evita parpadeos de /login al recargar
+  if (!ready) return null;
 
-  // Si no hay sesión, al login
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace state={{ from: location }} />;
-  }
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
 
-  // Si se piden roles, comprobar
-  if (roles?.length) {
+  if (roles && roles.length) {
     const role = (user?.rol || user?.role || "").toLowerCase();
-    const ok = roles.map(r => r.toLowerCase()).includes(role);
+    const ok = roles.map((r) => r.toLowerCase()).includes(role);
     if (!ok) return <Navigate to="/unauthorized" replace />;
   }
 
-  return children ?? <Outlet />;
+  return children ? children : <Outlet />;
 }
