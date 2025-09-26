@@ -116,4 +116,54 @@ router.get('/whoami', verificarToken, async (req, res) => {
   }
 });
 
+// ... ya tendrás login, me, etc ...
+
+router.patch('/me', verificarToken, async (req, res) => {
+  try {
+    const uid = req.user.id; // viene del token
+    const { nombre, email, telefono, password } = req.body || {};
+
+    // Unicidad: email
+    if (email) {
+      const [[dupE]] = await db.query(
+        `SELECT id FROM usuarios WHERE email=? AND id<>? LIMIT 1`, [String(email), uid]
+      );
+      if (dupE) return res.status(409).json({ error: 'email_duplicado' });
+    }
+    // Unicidad: telefono
+    if (telefono) {
+      const [[dupT]] = await db.query(
+        `SELECT id FROM usuarios WHERE telefono=? AND id<>? LIMIT 1`, [String(telefono), uid]
+      );
+      if (dupT) return res.status(409).json({ error: 'telefono_duplicado' });
+    }
+
+    const sets = [];
+    const vals = [];
+    const setIf = (col, v) => { sets.push(`${col}=?`); vals.push(v); };
+
+    if (nombre   != null) setIf('nombre', String(nombre));
+    if (email    != null) setIf('email', String(email));
+    if (telefono != null) setIf('telefono', String(telefono));
+
+    if (password) {
+      const hash = await bcrypt.hash(String(password), 10);
+      setIf('password', hash);
+    }
+
+    if (!sets.length) return res.json({ ok: true });
+
+    vals.push(uid);
+    await db.query(`UPDATE usuarios SET ${sets.join(', ')} WHERE id=?`, vals);
+
+    const [[out]] = await db.query(
+      `SELECT id, username, nombre, email, telefono, rol, estado, nif FROM usuarios WHERE id=?`, [uid]
+    );
+    res.json(out);
+  } catch (e) {
+    console.error('PATCH /auth/me', e);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 module.exports = router;

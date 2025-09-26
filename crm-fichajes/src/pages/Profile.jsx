@@ -1,147 +1,55 @@
 // src/pages/Profile.jsx
-import { useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { BASE_URL } from "../services/api";
-
-const MAX_MB = 2;
-const MAX_BYTES = MAX_MB * 1024 * 1024;
-const ALLOWED = ["image/jpeg", "image/png", "image/webp"];
+import { apiPatch, saveUser } from "../services/api";
+import PasswordInput from "../components/PasswordInput";
 
 export default function Profile() {
-  const { user, login } = useAuth(); // login lo usamos para refrescar datos guardados
-  const [preview, setPreview] = useState(user?.avatar_url || user?.avatar || "");
+  const { user } = useAuth();
+  const [nombre, setNombre] = useState(user?.nombre || "");
+  const [email, setEmail] = useState(user?.email || "");
+  const [telefono, setTelefono] = useState(user?.telefono || "");
+  const [newPass, setNewPass] = useState("");
+  const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
-  const [ok, setOk] = useState("");
   const [loading, setLoading] = useState(false);
-  const fileRef = useRef(null);
 
-  function openPicker() {
-    setErr(""); setOk("");
-    fileRef.current?.click();
-  }
+  useEffect(() => {
+    setNombre(user?.nombre || ""); setEmail(user?.email || ""); setTelefono(user?.telefono || "");
+  }, [user]);
 
-  async function onPickAvatar(e) {
-    setErr(""); setOk("");
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Validaciones
-    if (!ALLOWED.includes(file.type)) {
-      setErr("Formato no válido. Usa JPG, PNG o WEBP.");
-      e.target.value = "";
-      return;
-    }
-    if (file.size > MAX_BYTES) {
-      setErr(`Archivo demasiado grande (máx ${MAX_MB}MB).`);
-      e.target.value = "";
-      return;
-    }
-
-    // Vista previa local
-    const localUrl = URL.createObjectURL(file);
-    setPreview(localUrl);
-
-    // Subida
+  const onSave = async (e) => {
+    e.preventDefault(); setErr(""); setMsg(""); setLoading(true);
     try {
-      setLoading(true);
-      const fd = new FormData();
-      fd.append("avatar", file);
-
-      const resp = await fetch(`${BASE_URL}/usuarios/avatar`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("crm_token") || ""}`,
-        },
-        body: fd,
-      });
-
-      if (!resp.ok) {
-        const j = await resp.json().catch(() => ({}));
-        throw new Error(j.error || "No se pudo subir el avatar");
-      }
-
-      const data = await resp.json(); // { avatar_url, ... }
-      // Actualiza storage/context para que Topbar y resto lo vean
-      try {
-        const raw = localStorage.getItem("crm_user");
-        const u = raw ? JSON.parse(raw) : {};
-        const updated = { ...u, avatar_url: data.avatar_url || data.url || u.avatar_url };
-        localStorage.setItem("crm_user", JSON.stringify(updated));
-        login(updated, localStorage.getItem("crm_token") || ""); // refresca contexto
-      } catch {}
-
-      setOk("Avatar actualizado");
-    } catch (e2) {
-      setErr(e2.message);
-      // si falló, revierte preview al anterior
-      setPreview(user?.avatar_url || user?.avatar || "");
-    } finally {
-      setLoading(false);
-      e.target.value = ""; // permite volver a elegir el mismo archivo
-    }
-  }
+      const payload = { nombre, email, telefono };
+      if (newPass.trim()) payload.password = newPass.trim();
+      const me = await apiPatch("/auth/me", payload);
+      saveUser(me);
+      setMsg("Perfil actualizado"); setNewPass("");
+    } catch (e) {
+      const m = String(e.message || "");
+      if (m.includes("email_duplicado")) setErr("Ese email ya está en uso");
+      else if (m.includes("telefono_duplicado")) setErr("Ese teléfono ya está en uso");
+      else setErr(m || "Error al guardar");
+    } finally { setLoading(false); }
+  };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <h2 className="text-2xl font-bold text-gray-800">Perfil</h2>
-
-      {err && (
-        <div className="rounded-md bg-red-50 border border-red-200 text-red-700 px-4 py-2 text-sm">
-          {err}
+    <div className="p-4 max-w-2xl">
+      <h2 className="mb-4 text-xl font-semibold">Perfil</h2>
+      {err && <div className="mb-3 rounded border border-red-300 bg-red-50 p-2 text-sm text-red-800">{err}</div>}
+      {msg && <div className="mb-3 rounded border border-green-300 bg-green-50 p-2 text-sm text-green-800">{msg}</div>}
+      <form onSubmit={onSave} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <input className="rounded border p-2" placeholder="Nombre" value={nombre} onChange={(e)=>setNombre(e.target.value)} />
+        <input className="rounded border p-2" placeholder="Email" value={email} onChange={(e)=>setEmail(e.target.value)} />
+        <input className="rounded border p-2" placeholder="Teléfono" value={telefono} onChange={(e)=>setTelefono(e.target.value)} />
+        <div className="sm:col-span-2">
+          <PasswordInput value={newPass} onChange={(e)=>setNewPass(e.target.value)} placeholder="Nueva contraseña (opcional)" />
         </div>
-      )}
-      {ok && (
-        <div className="rounded-md bg-green-50 border border-green-200 text-green-700 px-4 py-2 text-sm">
-          {ok}
+        <div className="sm:col-span-2">
+          <button disabled={loading} className="rounded bg-blue-600 px-3 py-2 text-white">Guardar cambios</button>
         </div>
-      )}
-
-      <div className="bg-white rounded-xl shadow p-6 flex items-center gap-6">
-        <div className="relative">
-          {preview ? (
-            <img
-              src={preview}
-              alt="Avatar"
-              className="h-20 w-20 rounded-full object-cover ring-1 ring-gray-200"
-            />
-          ) : (
-            <div className="h-20 w-20 rounded-full bg-gray-100 text-gray-600 grid place-items-center text-xl font-semibold ring-1 ring-gray-200">
-              {(user?.nombre || user?.name || "U").charAt(0).toUpperCase()}
-            </div>
-          )}
-        </div>
-
-        <div className="flex-1">
-          <div className="text-lg font-semibold capitalize">
-            {user?.nombre || user?.name || user?.username || "Usuario"}
-          </div>
-          <div className="text-sm text-gray-500">{user?.email || "—"}</div>
-
-          <div className="mt-4 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={openPicker}
-              className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-60"
-              disabled={loading}
-            >
-              {loading ? "Subiendo..." : "Cambiar avatar"}
-            </button>
-            <span className="text-xs text-gray-500">
-              Formatos: JPG/PNG/WEBP, máx {MAX_MB}MB
-            </span>
-          </div>
-
-          <input
-            ref={fileRef}
-            type="file"
-            accept={ALLOWED.join(",")}
-            className="hidden"
-            onChange={onPickAvatar}
-          />
-        </div>
-      </div>
-
-      {/* Aquí más campos del perfil si quieres (nombre, teléfono, etc.) */}
+      </form>
     </div>
   );
 }

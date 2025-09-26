@@ -353,6 +353,59 @@ LOCK TABLES `register_requests` WRITE;
 UNLOCK TABLES;
 
 --
+-- Table structure for table `role_permissions`
+--
+
+DROP TABLE IF EXISTS `role_permissions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `role_permissions` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `role_slug` varchar(50) NOT NULL,
+  `permiso` varchar(100) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_role_perm` (`role_slug`,`permiso`),
+  CONSTRAINT `fk_role_perm_role` FOREIGN KEY (`role_slug`) REFERENCES `roles` (`slug`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `role_permissions`
+--
+
+LOCK TABLES `role_permissions` WRITE;
+/*!40000 ALTER TABLE `role_permissions` DISABLE KEYS */;
+/*!40000 ALTER TABLE `role_permissions` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `roles`
+--
+
+DROP TABLE IF EXISTS `roles`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `roles` (
+  `slug` varchar(50) NOT NULL,
+  `nombre` varchar(100) NOT NULL,
+  `descripcion` text DEFAULT NULL,
+  `created_at` datetime DEFAULT NULL,
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`slug`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `roles`
+--
+
+LOCK TABLES `roles` WRITE;
+/*!40000 ALTER TABLE `roles` DISABLE KEYS */;
+INSERT INTO `roles` VALUES ('admin','Admin',NULL,NULL,NULL),('empleado','Empleado',NULL,NULL,NULL),('supervisor','Supervisor',NULL,NULL,NULL);
+/*!40000 ALTER TABLE `roles` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `settings_categories`
 --
 
@@ -538,7 +591,7 @@ CREATE TABLE `usuarios` (
 
 LOCK TABLES `usuarios` WRITE;
 /*!40000 ALTER TABLE `usuarios` DISABLE KEYS */;
-INSERT INTO `usuarios` VALUES ('5ecdc144-41fc-11f0-a28e-ff948e6a3801','admin01','Laura Martínez','laura.admin@empresa.com','2025-09-16 11:29:00','18047463F','600123456','admin',1,NULL,'2025-06-05 13:01:02',NULL,'<$2b$10$R9DHBZtreOayvfreVJWKSuJ3njf2OKqxAwtYdlky0ADV2PsecULZW>'),('5ecde6f5-41fc-11f0-a28e-ff948e6a3801','empleado01','Carlos Pérez','carlos@empresa.com',NULL,'18047463F','600654321','empleado',1,NULL,'2025-06-05 13:01:02',NULL,'<HASH_QUE_COPIASTE>'),('5ecde794-41fc-11f0-a28e-ff948e6a3801','supervisor01','Marta López','marta@empresa.com',NULL,'18047463F','611223344','supervisor',1,NULL,'2025-06-05 13:01:02',NULL,'<HASH_QUE_COPIASTE>');
+INSERT INTO `usuarios` VALUES ('5ecdc144-41fc-11f0-a28e-ff948e6a3801','admin01','Laura Martínez','laura.admin@empresa.com','2025-09-16 11:29:00','18047463F','600123456','admin',1,NULL,'2025-06-05 13:01:02',NULL,'letmein'),('5ecde6f5-41fc-11f0-a28e-ff948e6a3801','empleado01','Carlos Pérez','carlos@empresa.com',NULL,'18047463F','600654321','empleado',1,NULL,'2025-06-05 13:01:02',NULL,'<HASH_QUE_COPIASTE>'),('5ecde794-41fc-11f0-a28e-ff948e6a3801','supervisor01','Marta López','marta@empresa.com',NULL,'18047463F','611223344','supervisor',1,NULL,'2025-06-05 13:01:02',NULL,'<HASH_QUE_COPIASTE>');
 /*!40000 ALTER TABLE `usuarios` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -559,4 +612,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-09-17 11:56:22
+-- Dump completed on 2025-09-21 10:30:57

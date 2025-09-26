@@ -1,38 +1,42 @@
 // src/context/AuthContext.jsx
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import {
-  apiGet,
-  apiPost,
-  saveToken,
-  clearToken,
-  readToken,
-  saveUser,
-  readUser,
+  apiGet, apiPost, saveToken, clearToken, readToken, saveUser, readUser,
 } from "../services/api";
 
 const Ctx = createContext(null);
 export const useAuth = () => useContext(Ctx);
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(readUser());
+  const [user, setUser] = useState(() => readUser());
+  const [perms, setPerms] = useState(null);
   const [ready, setReady] = useState(false);
+
   const isAuthenticated = !!user;
+
+  async function fetchPerms(roleSlug) {
+    try {
+      if (!roleSlug) return setPerms(null);
+      const data = await apiGet(`/roles/${String(roleSlug).toLowerCase()}`);
+      setPerms(data?.permisos || null);
+    } catch { setPerms(null); }
+  }
 
   useEffect(() => {
     (async () => {
       try {
-        const t = readToken();
-        if (t) {
-          const me = await apiGet("/auth/whoami"); // alias de /auth/me
+        const token = readToken();
+        if (token) {
+          const me = await apiGet("/auth/me");
           setUser(me);
-          saveUser(me);
+          await fetchPerms(me?.rol);
         } else {
-          clearToken();
           setUser(null);
+          setPerms(null);
         }
       } catch {
-        clearToken();
         setUser(null);
+        setPerms(null);
       } finally {
         setReady(true);
       }
@@ -40,27 +44,21 @@ export function AuthProvider({ children }) {
   }, []);
 
   async function login(username, password) {
-    // username trim, password tal cual
-    const payload = {
+    const { token, user } = await apiPost("/auth/login", {
       username: String(username || "").trim(),
       password: String(password ?? ""),
-    };
-    const { token, user } = await apiPost("/auth/login", payload);
+    });
     saveToken(token);
     saveUser(user);
     setUser(user);
+    await fetchPerms(user?.rol);
     return user;
   }
 
-  function logout() {
-    clearToken();
-    setUser(null);
-  }
+  function logout() { clearToken(); setUser(null); setPerms(null); }
 
-  const value = useMemo(
-    () => ({ user, isAuthenticated, ready, login, logout }),
-    [user, isAuthenticated, ready]
-  );
+  const value = useMemo(() => ({ user, perms, isAuthenticated, ready, login, logout }),
+    [user, perms, isAuthenticated, ready]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

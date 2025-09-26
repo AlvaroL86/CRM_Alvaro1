@@ -1,73 +1,190 @@
 // fichaje-api/routes/clientes.js
-const router = require('express').Router();
+const express = require('express');
+const router = express.Router();
 const db = require('../db');
-const verificar = require('../middleware/auth');
+const verificarToken = require('../middleware/auth');
 
-// Helpers de validación/saneo
-const clean = (v) => {
-  if (v === undefined || v === null) return null;
-  const t = String(v).trim();
-  return t.length ? t : null; // "" -> null
-};
-const emailOk  = (v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
-const phoneOk  = (v) => !v || /^\+?\d{6,15}$/.test(v);
+// Asegurar columnas mínimas
+async function ensureClientesTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS clientes (
+      id        CHAR(36) PRIMARY KEY,
+      empresa   VARCHAR(120) NOT NULL,
+      contacto  VARCHAR(120) NOT NULL,
+      email     VARCHAR(255) NULL,
+      telefono  VARCHAR(30)  NOT NULL,
+      estado    TINYINT(1)   NOT NULL DEFAULT 1,
+      nif       VARCHAR(20)  NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  // Índices de unicidad
+  await db.query(`CREATE INDEX IF NOT EXISTS idx_clientes_nif ON clientes(nif)`);
+  // Nota: si quieres unicidad global de teléfono, quítale IF NOT EXISTS y crea UNIQUE sin nif
+  await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_clientes_nif_telefono ON clientes(nif, telefono)`);
+}
+ensureClientesTable().catch(console.error);
 
-// Listar (mismo NIF)
-router.get('/', verificar, async (req, res) => {
+// LISTAR (por NIF de sesión)
+router.get('/', verificarToken, async (req, res) => {
   try {
-    const { nif } = req.usuario;
+    const sessionNif = req.user?.nif ? String(req.user.nif).trim() : '';
+    if (!sessionNif) return res.status(400).json({ error: 'nif_obligatorio' });
+
     const [rows] = await db.query(
-      `SELECT id, empresa_nombre, email, telefono, estado, fecha_registro
-         FROM clientes
-        WHERE nif = ?
-        ORDER BY empresa_nombre ASC`,
-      [nif]
+      `SELECT id, empresa, contacto, email, telefono, estado, nif
+         FROM clientes WHERE nif=? ORDER BY created_at DESC`, [sessionNif]
     );
     res.json(rows);
   } catch (e) {
     console.error('GET /clientes', e);
-    res.status(500).json({ error: 'Error interno en listado de clientes' });
+    res.status(500).json({ error: 'Error interno' });
   }
 });
 
-// Crear
-router.post('/', verificar, async (req, res) => {
+// CREAR
+router.post('/', verificarToken, async (req, res) => {
   try {
-    const { nif } = req.usuario;
+    const sessionNif = req.user?.nif ? String(req.user.nif).trim() : '';
+    if (!sessionNif) return res.status(400).json({ error: 'nif_obligatorio' });
 
-    // saneo + trim
-    const empresa_nombre = clean(req.body?.empresa_nombre);
-    const email = clean(req.body?.email);
-    const telefono = clean(req.body?.telefono);
-
-    if (!empresa_nombre) {
-      return res.status(400).json({ error: 'empresa_nombre requerido' });
-    }
-    if (!emailOk(email)) {
-      return res.status(400).json({ error: 'email no válido' });
-    }
-    if (!phoneOk(telefono)) {
-      return res.status(400).json({ error: 'telefono no válido' });
+    const { empresa, contacto, email = null, telefono, estado = 1 } = req.body || {};
+    if (!empresa || !contacto || !telefono) {
+      return res.status(400).json({ error: 'campos_obligatorios' });
     }
 
-    // Igual que tu versión: generamos UUID en MySQL
-    const [[idRow]] = await db.query(`SELECT UUID() AS id`);
+    // Unicidad por (nif, telefono)
+    const [[dupT]] = await db.query(
+      `SELECT id FROM clientes WHERE nif=? AND telefono=? LIMIT 1`, [sessionNif, String(telefono)]
+    );
+    if (dupT) return res.status(409).json({ error: 'telefono_duplicado' });
+
+    if (email) {
+      const [[dupE]] = await db.query(
+        `SELECT id FROM clientes WHERE nif=? AND email=? LIMIT 1`, [sessionNif, String(email)]
+      );
+      if (dupE) return res.status(409).json({ error: 'email_duplicado' });
+    }
 
     await db.query(
-      `INSERT INTO clientes (id, empresa_nombre, email, telefono, estado, fecha_registro, nif)
-       VALUES (?, ?, ?, ?, 1, NOW(), ?)`,
-      [idRow.id, empresa_nombre, email, telefono, nif]
+      `INSERT INTO clientes (id, empresa, contacto, email, telefono, estado, nif)
+       VALUES (UUID(), ?, ?, ?, ?, ?, ?)`,
+      [String(empresa), String(contacto), email ? String(email) : null, String(telefono), Number(estado)?1:0, sessionNif]
     );
 
-    res.status(201).json({ ok: true, id: idRow.id });
+    const [[cli]] = await db.query(
+      `SELECT id, empresa, contacto, email, telefono, estado, nif
+         FROM clientes WHERE nif=? AND telefono=? LIMIT 1`, [sessionNif, String(telefono)]
+    );
+    res.status(201).json(cli);
   } catch (e) {
-    // Posibles errores típicos: clave duplicada por UNIQUE(empresa_nombre,nif), etc.
     console.error('POST /clientes', e);
-    const msg =
-      e?.code === 'ER_DUP_ENTRY'
-        ? 'Ya existe un cliente con ese nombre para tu empresa'
-        : 'Error interno al crear el cliente';
-    res.status(500).json({ error: msg });
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ACTUALIZAR
+router.patch('/:id', verificarToken, async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const sessionNif = req.user?.nif ? String(req.user.nif).trim() : '';
+    if (!sessionNif) return res.status(400).json({ error: 'nif_obligatorio' });
+
+    const { empresa, contacto, email, telefono, estado } = req.body || {};
+
+    // Unicidad
+    if (telefono != null) {
+      const [[dupT]] = await db.query(
+        `SELECT id FROM clientes WHERE nif=? AND telefono=? AND id<>? LIMIT 1`, [sessionNif, String(telefono), id]
+      );
+      if (dupT) return res.status(409).json({ error: 'telefono_duplicado' });
+    }
+    if (email != null && email !== "") {
+      const [[dupE]] = await db.query(
+        `SELECT id FROM clientes WHERE nif=? AND email=? AND id<>? LIMIT 1`, [sessionNif, String(email), id]
+      );
+      if (dupE) return res.status(409).json({ error: 'email_duplicado' });
+    }
+
+    const sets = [], vals = [];
+    const setIf = (col, v) => { sets.push(`${col}=?`); vals.push(v); };
+
+    if (empresa   != null) setIf('empresa', String(empresa));
+    if (contacto  != null) setIf('contacto', String(contacto));
+    if (email     != null) setIf('email', email === "" ? null : String(email));
+    if (telefono  != null) setIf('telefono', String(telefono));
+    if (estado    != null) setIf('estado', Number(estado)?1:0);
+
+    if (!sets.length) return res.json({ ok: true });
+
+    vals.push(id);
+    await db.query(`UPDATE clientes SET ${sets.join(', ')} WHERE id=?`, vals);
+
+    const [[out]] = await db.query(
+      `SELECT id, empresa, contacto, email, telefono, estado, nif FROM clientes WHERE id=?`, [id]
+    );
+    res.json(out);
+  } catch (e) {
+    console.error('PATCH /clientes/:id', e);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ELIMINAR
+router.delete('/:id', verificarToken, async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const [r] = await db.query(`DELETE FROM clientes WHERE id=?`, [id]);
+    if (!r.affectedRows) return res.status(404).json({ error: 'no_existe' });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('DELETE /clientes/:id', e);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// IMPORT masivo
+router.post('/import', verificarToken, async (req, res) => {
+  try {
+    const sessionNif = req.user?.nif ? String(req.user.nif).trim() : '';
+    if (!sessionNif) return res.status(400).json({ error: 'nif_obligatorio' });
+
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    let inserted = 0, updated = 0, duplicated = 0;
+
+    for (const r of items) {
+      const empresa  = String(r.empresa || "").trim();
+      const contacto = String(r.contacto || "").trim();
+      const email    = String(r.email || "").trim();
+      const telefono = String(r.telefono || "").trim();
+      const estado   = Number(r.estado) ? 1 : 0;
+
+      if (!empresa || !contacto || !telefono) { duplicated++; continue; }
+
+      const [[existTel]] = await db.query(
+        `SELECT id FROM clientes WHERE nif=? AND telefono=? LIMIT 1`, [sessionNif, telefono]
+      );
+
+      if (existTel) {
+        await db.query(
+          `UPDATE clientes SET empresa=?, contacto=?, email=?, estado=? WHERE id=?`,
+          [empresa, email || null, email ? email : null, estado, existTel.id]
+        );
+        updated++;
+      } else {
+        await db.query(
+          `INSERT INTO clientes (id, empresa, contacto, email, telefono, estado, nif)
+           VALUES (UUID(), ?,?,?,?,?,?)`,
+          [empresa, contacto, email || null, telefono, estado, sessionNif]
+        );
+        inserted++;
+      }
+    }
+
+    res.json({ ok: true, inserted, updated, duplicated });
+  } catch (e) {
+    console.error('POST /clientes/import', e);
+    res.status(500).json({ error: 'Error interno' });
   }
 });
 

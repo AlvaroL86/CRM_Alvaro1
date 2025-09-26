@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const verificarToken = require('../middleware/auth');
 
 // ------- al inicio del fichero usuarios.js ---------
+// Asegura columnas típicas (estado, nif) si faltan
 async function ensureUsersCols() {
   try {
     const [cols] = await db.query(`SHOW COLUMNS FROM usuarios`);
@@ -13,7 +14,11 @@ async function ensureUsersCols() {
 
     if (!names.includes('estado')) {
       await db.query(`ALTER TABLE usuarios ADD COLUMN estado TINYINT(1) NOT NULL DEFAULT 1`);
-      console.log('[migración] columna usuarios.estado creada');
+      console.log('[migración] usuarios.estado creado');
+    }
+    if (!names.includes('nif')) {
+      await db.query(`ALTER TABLE usuarios ADD COLUMN nif VARCHAR(20) NOT NULL`);
+      console.log('[migración] usuarios.nif creado (NOT NULL)');
     }
   } catch (e) {
     console.error('ensureUsersCols()', e);
@@ -49,7 +54,7 @@ router.get('/', verificarToken, async (req, res) => {
 // CREAR
 router.post('/', verificarToken, async (req, res) => {
   try {
-    const {
+    let {
       username, nombre, email, telefono, rol = 'empleado',
       password = '', estado = 1, nif = null
     } = req.body || {};
@@ -58,21 +63,37 @@ router.post('/', verificarToken, async (req, res) => {
       return res.status(400).json({ error: 'username y password son obligatorios' });
     }
 
-    const [[dup]] = await db.query(`SELECT id FROM usuarios WHERE username=? LIMIT 1`, [username]);
+    // === 👇 NIF obligatorio: si no viene en el body, usamos el de la sesión ===
+    const sessionNif = (req.user && req.user.nif) ? String(req.user.nif).trim() : '';
+    const nifFinal = String((nif ?? sessionNif) || '').trim();
+    if (!nifFinal) {
+      return res.status(400).json({ error: 'nif es obligatorio (multiempresa)' });
+    }
+
+    const [[dup]] = await db.query(
+      `SELECT id FROM usuarios WHERE username=? LIMIT 1`,
+      [username]
+    );
     if (dup) return res.status(409).json({ error: 'Username ya existe' });
 
     const hash = await bcrypt.hash(String(password), 10);
 
-    await db.query(`
-      INSERT INTO usuarios (id, username, nombre, email, telefono, rol, password, estado, nif)
-      VALUES (UUID(), ?,?,?,?,?,?,?,?)
-    `, [username, nombre || '', email || '', telefono || '', String(rol), hash, Number(estado) ? 1 : 0, nif]);
+    await db.query(
+      `INSERT INTO usuarios (id, username, nombre, email, telefono, rol, password, estado, nif)
+       VALUES (UUID(), ?,?,?,?,?,?,?,?)`,
+      [
+        String(username), String(nombre || ''), String(email || ''), String(telefono || ''),
+        String(rol || 'empleado'), hash, Number(estado) ? 1 : 0, nifFinal
+      ]
+    );
 
-    const [[u]] = await db.query(
-      `SELECT id, username, nombre, email, telefono, rol, estado, nif FROM usuarios WHERE username=?`,
+    const [[nuevo]] = await db.query(
+      `SELECT id, username, nombre, email, telefono, rol, estado, nif
+         FROM usuarios
+        WHERE username=? LIMIT 1`,
       [username]
     );
-    res.status(201).json(u);
+    res.status(201).json(nuevo);
   } catch (e) {
     console.error('POST /usuarios', e);
     res.status(500).json({ error: 'Error interno' });
