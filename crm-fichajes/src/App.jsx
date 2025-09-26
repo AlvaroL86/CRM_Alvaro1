@@ -25,7 +25,7 @@ import ChatGroups from "./pages/chat/ChatGroups";
 import Users from "./pages/Users";
 import UsersRoles from "./pages/admin/UsersRoles";
 
-import MainLayout from "./pages/MainLayout";
+import MainLayout from "./layout/MainLayout";
 import PrivateGuard from "./components/PrivateGuard";
 
 export default function App() {
