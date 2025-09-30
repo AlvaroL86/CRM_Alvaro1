@@ -1,204 +1,134 @@
 // src/pages/chat/ChatGroups.jsx
 import { useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
-import { apiGet } from "../../services/api";
-import Rooms from "./Rooms";
-function MembersOfRoom({ roomId }) {
-  const [members, setMembers] = useState([]);
-  const [loading, setLoading] = useState(true);
+import { getSocket } from "../../socket";
 
-  useEffect(() => {
-    let alive = true;
-    setLoading(true);
-    (async () => {
-      try {
-        const list = await apiGet(`/chat/members?room=${encodeURIComponent(roomId)}`);
-        if (alive) setMembers(Array.isArray(list) ? list : []);
-      } catch (e) {
-        if (alive) setMembers([]);
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, [roomId]);
+const HIDE_KEY = "chat_groups_hide_panel";
+const PINS_KEY = "chat_pinned_groups";
+const LIST_KEY = "chat_groups_local"; // almacenamiento local si no hay backend
 
-  return (
-    <div>
-      <div className="mb-1 text-xs font-semibold text-gray-600">Miembros</div>
-      {loading && <div className="text-xs text-gray-500">Cargando…</div>}
-      {!loading && members.length === 0 && (
-        <div className="text-xs text-gray-500">Sin miembros.</div>
-      )}
-      <div className="space-y-1">
-        {members.map(m => (
-          <div key={m.id} className="flex items-center gap-2 text-sm">
-            <span className={`h-2 w-2 rounded-full ${m.online ? "bg-emerald-500" : "bg-gray-400"}`} />
-            <span className="truncate">{m.nombre}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+function readPins() {
+  try { return JSON.parse(localStorage.getItem(PINS_KEY) || "[]"); } catch { return []; }
 }
-const PIN_KEY = "chat_pinned_groups";
-const PANEL_KEY = "chat_groups_hide_panel";
+function writePins(v) {
+  try { localStorage.setItem(PINS_KEY, JSON.stringify(v)); } catch {}
+}
+function readLocalGroups() {
+  try { return JSON.parse(localStorage.getItem(LIST_KEY) || "[]"); } catch { return []; }
+}
+function writeLocalGroups(list) {
+  try { localStorage.setItem(LIST_KEY, JSON.stringify(list)); } catch {}
+}
 
 export default function ChatGroups() {
-  const [rooms, setRooms] = useState([]); // [{id,nombre,tipo}]
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
+  const [hidden, setHidden] = useState(() => localStorage.getItem(HIDE_KEY) === "true");
+  const [q, setQ] = useState("");
+  const [groups, setGroups] = useState(() => readLocalGroups());
+  const [pins, setPins] = useState(() => readPins());
+  const [selected, setSelected] = useState(null);
 
-  const [roomId, setRoomId] = useState(null);
-  const [roomName, setRoomName] = useState("");
-
-  const [pins, setPins] = useState(() => {
-    try {
-      const raw = localStorage.getItem(PIN_KEY);
-      const arr = raw ? JSON.parse(raw) : [];
-      return Array.isArray(arr) ? arr : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const [hidePanel, setHidePanel] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(PANEL_KEY) || "false"); } catch { return false; }
-  });
-
-  const { search } = useLocation();
-
-  useEffect(() => { localStorage.setItem(PIN_KEY, JSON.stringify(pins)); }, [pins]);
-  useEffect(() => { localStorage.setItem(PANEL_KEY, JSON.stringify(hidePanel)); }, [hidePanel]);
-
-  const loadRooms = async () => {
-    setLoading(true);
-    setErr("");
-    try {
-      const list = await apiGet("/chat/rooms?type=grupo");
-      setRooms(Array.isArray(list) ? list : []);
-    } catch (e) {
-      setErr(e.message || "No se pudieron cargar los grupos.");
-      setRooms([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { loadRooms(); }, []);
-
-  const orderedRooms = useMemo(() => {
-    const byId = new Map(rooms.map(r => [r.id, r]));
-    const pinned = pins.map(id => byId.get(id)).filter(Boolean);
-    const others = rooms
-      .filter(r => !pins.includes(r.id))
-      .slice()
-      .sort((a, b) =>
-        (a.nombre || "").localeCompare(b.nombre || "", "es", { sensitivity: "base" })
-      );
-    return [...pinned, ...others];
-  }, [rooms, pins]);
-
+  // escuchar evento global para “+ Nuevo chat”
   useEffect(() => {
-    const params = new URLSearchParams(search);
-    const preselect = params.get("select");
-    if (preselect) {
-      const r = rooms.find(x => x.id === preselect);
-      if (r) {
-        setRoomId(r.id);
-        setRoomName(r.nombre || "Grupo");
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, rooms.length]);
+    const onNew = () => {
+      const name = prompt("Nombre del grupo");
+      if (!name) return;
+      const id = `g_${Date.now()}`;
+      const g = { id, name };
+      const list = [g, ...groups];
+      setGroups(list);
+      writeLocalGroups(list);
+      getSocket().emit("chat:room-created", { id, name });
+      setSelected(g);
+    };
+    window.addEventListener("chat:new-group", onNew);
+    return () => window.removeEventListener("chat:new-group", onNew);
+  }, [groups]);
 
-  const togglePin = (id) => {
-    setPins(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
-  };
+  function hideToggle() {
+    const v = !hidden;
+    setHidden(v);
+    try { localStorage.setItem(HIDE_KEY, String(v)); } catch {}
+  }
 
-  const selectRoom = (r) => {
-    setRoomId(r.id);
-    setRoomName(r.nombre || "Grupo");
-  };
+  const list = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    return groups
+      .slice()
+      .sort((a, b) => {
+        const ap = pins.includes(a.id) ? -1 : 0;
+        const bp = pins.includes(b.id) ? -1 : 0;
+        return ap - bp || a.name.localeCompare(b.name);
+      })
+      .filter(g => !t || g.name.toLowerCase().includes(t));
+  }, [groups, q, pins]);
+
+  function togglePin(id) {
+    const set = new Set(pins);
+    set.has(id) ? set.delete(id) : set.add(id);
+    const arr = [...set];
+    setPins(arr);
+    writePins(arr);
+  }
 
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-      {!hidePanel && (
-        <aside className="rounded bg-white p-3 shadow md:col-span-1">
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="font-semibold text-gray-800">Grupos</h3>
-            <button
-              className="text-xs text-gray-500 hover:underline"
-              onClick={() => setHidePanel(true)}
-              title="Ocultar panel"
-            >
-              Ocultar panel
-            </button>
-          </div>
+    <div className="flex gap-4">
+      {/* Panel lateral de grupos */}
+      <div className="w-64 shrink-0 p-2">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="font-semibold">Grupos</div>
+          <button className="text-xs text-blue-600 hover:underline" onClick={hideToggle}>
+            {hidden ? "Mostrar panel" : "Ocultar panel"}
+          </button>
+        </div>
 
-          {loading && <div className="text-sm text-gray-500">Cargando…</div>}
-          {err && <div className="text-sm text-red-600">{err}</div>}
-          {!loading && !err && orderedRooms.length === 0 && (
-            <div className="text-sm text-gray-500">No hay grupos. Crea uno nuevo.</div>
-          )}
-          {roomId && (
-           <div className="mt-4 border-t pt-2">
-           <MembersOfRoom roomId={roomId} />
-          </div>
-            )}
-          <div className="mt-2 space-y-1">
-            {orderedRooms.map((r) => {
-              const active = r.id === roomId;
-              const pinned = pins.includes(r.id);
-              return (
+        {!hidden && (
+          <>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Buscar grupo…"
+              className="mb-2 w-full rounded border px-2 py-1 text-sm"
+            />
+            <div className="max-h-[60vh] overflow-y-auto rounded border bg-white">
+              {!list.length && <div className="p-3 text-sm text-gray-500">No hay grupos. Crea uno nuevo.</div>}
+              {list.map((g) => (
                 <div
-                  key={r.id}
-                  className={`flex items-center justify-between rounded px-2 py-1 text-sm ${
-                    active ? "bg-blue-50 text-blue-700" : "hover:bg-gray-100"
+                  key={g.id}
+                  onClick={() => setSelected(g)}
+                  className={`flex cursor-pointer items-center justify-between gap-2 border-b px-2 py-2 hover:bg-gray-50 ${
+                    selected?.id === g.id ? "bg-blue-50" : ""
                   }`}
                 >
+                  <div className="truncate text-sm">{g.name}</div>
                   <button
-                    onClick={() => selectRoom(r)}
-                    className="flex-1 text-left truncate"
-                    title={r.nombre}
-                  >
-                    {r.nombre}
-                  </button>
-                  <button
-                    onClick={() => togglePin(r.id)}
-                    className={`ml-2 rounded px-1 ${pinned ? "text-amber-500" : "text-gray-400 hover:text-gray-600"}`}
-                    title={pinned ? "Desfijar" : "Fijar"}
+                    className={`text-xs ${pins.includes(g.id) ? "text-yellow-500" : "text-gray-400"}`}
+                    onClick={(e) => { e.stopPropagation(); togglePin(g.id); }}
+                    title={pins.includes(g.id) ? "Quitar de favoritos" : "Marcar favorito"}
                   >
                     ★
                   </button>
                 </div>
-              );
-            })}
-          </div>
-        </aside>
-      )}
-
-      <main className={hidePanel ? "md:col-span-4" : "md:col-span-3"}>
-        {hidePanel && (
-          <div className="mb-2">
-            <button
-              className="text-xs text-gray-500 hover:underline"
-              onClick={() => setHidePanel(false)}
-              title="Mostrar panel de grupos"
-            >
-              Mostrar panel
-            </button>
-          </div>
+              ))}
+            </div>
+          </>
         )}
+      </div>
 
-        {roomId ? (
-          <Rooms roomId={roomId} title={`Grupo · ${roomName || "Grupo"}`} />
-        ) : (
-          <div className="rounded bg-white p-6 text-sm text-gray-600 shadow">
+      {/* Área de grupo seleccionado / ayuda */}
+      <div className="flex-1">
+        {!selected && (
+          <div className="rounded border bg-white p-4 text-sm text-gray-600">
             Selecciona un grupo de la lista o crea uno nuevo con “+ Nuevo chat”.
           </div>
         )}
-      </main>
+        {selected && (
+          <div className="rounded border bg-white p-4">
+            <div className="mb-2 text-sm text-gray-600">
+              Grupo: <strong>{selected.name}</strong>
+            </div>
+            <div className="text-gray-400">Aquí iría el timeline del grupo (enlaza tu lógica de rooms).</div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

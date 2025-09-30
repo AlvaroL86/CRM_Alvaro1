@@ -1,7 +1,13 @@
 // src/context/AuthContext.jsx
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import {
-  apiGet, apiPost, saveToken, clearToken, readToken, saveUser, readUser,
+  apiGet,
+  apiPost,
+  saveToken,
+  clearToken,
+  readToken,
+  saveUser,
+  readUser,
 } from "../services/api";
 
 const Ctx = createContext(null);
@@ -19,15 +25,20 @@ export function AuthProvider({ children }) {
       if (!roleSlug) return setPerms(null);
       const data = await apiGet(`/roles/${String(roleSlug).toLowerCase()}`);
       setPerms(data?.permisos || null);
-    } catch { setPerms(null); }
+    } catch {
+      setPerms(null);
+    }
   }
 
+  // Cargar sesión al montar
   useEffect(() => {
+    let alive = true;
     (async () => {
       try {
         const token = readToken();
         if (token) {
           const me = await apiGet("/auth/me");
+          if (!alive) return;
           setUser(me);
           await fetchPerms(me?.rol);
         } else {
@@ -35,12 +46,14 @@ export function AuthProvider({ children }) {
           setPerms(null);
         }
       } catch {
+        // token inválido, limpiar
         setUser(null);
         setPerms(null);
       } finally {
-        setReady(true);
+        if (alive) setReady(true);
       }
     })();
+    return () => { alive = false; };
   }, []);
 
   async function login(username, password) {
@@ -55,10 +68,16 @@ export function AuthProvider({ children }) {
     return user;
   }
 
-  function logout() { clearToken(); setUser(null); setPerms(null); }
+  function logout() {
+    clearToken();
+    setUser(null);
+    setPerms(null);
+  }
 
-  const value = useMemo(() => ({ user, perms, isAuthenticated, ready, login, logout }),
-    [user, perms, isAuthenticated, ready]);
+  const value = useMemo(
+    () => ({ user, perms, isAuthenticated, ready, login, logout }),
+    [user, perms, isAuthenticated, ready]
+  );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

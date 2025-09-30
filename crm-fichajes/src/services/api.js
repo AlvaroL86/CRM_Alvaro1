@@ -1,104 +1,75 @@
-// /src/services/api.js
-// ====================================================
-// Utilidades de API + almacenamiento de token/usuario
-// ====================================================
+// src/services/api.js
+const BASE_URL =
+  (import.meta.env.VITE_API_URL && import.meta.env.VITE_API_URL.replace(/\/+$/, "")) ||
+  "http://localhost:3000";
 
-// IMPORTANTE: ahora exportamos BASE_URL
-export const BASE_URL = (
-  import.meta.env.VITE_API_URL || "http://localhost:3000"
-).replace(/\/$/, "");
+/* ===== Token & usuario en localStorage ===== */
+export function readToken() {
+  try { return localStorage.getItem("crm_token") || null; } catch { return null; }
+}
+export function saveToken(t) {
+  try { t ? localStorage.setItem("crm_token", t) : localStorage.removeItem("crm_token"); } catch {}
+}
+export function clearToken() { saveToken(null); }
 
-const TOKEN_KEY = "crm_token";
-const USER_KEY = "crm_user";
+export function readUser() {
+  try { return JSON.parse(localStorage.getItem("crm_user") || "null"); } catch { return null; }
+}
+export function saveUser(u) {
+  try { u ? localStorage.setItem("crm_user", JSON.stringify(u)) : localStorage.removeItem("crm_user"); } catch {}
+}
 
-// ---------------------
-// Storage helpers
-// ---------------------
-export const saveToken = (token, user) => {
-  try {
-    if (typeof token === "string") localStorage.setItem(TOKEN_KEY, token);
-    if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
-  } catch {}
-};
+/* ===== Helpers fetch ===== */
+function authHeaders() {
+  const t = readToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
 
-export const readToken = () => {
-  try {
-    return localStorage.getItem(TOKEN_KEY) || "";
-  } catch {
-    return "";
-  }
-};
-
-export const clearToken = () => {
-  try {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
-  } catch {}
-};
-
-export const saveUser = (user) => {
-  try {
-    if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
-  } catch {}
-};
-
-export const readUser = () => {
-  try {
-    const raw = localStorage.getItem(USER_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-};
-
-// ---------------------
-// Wrapper de fetch
-// ---------------------
-async function request(method, path, body) {
-  const headers = {};
-  const token = readToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-
-  let payload;
-  if (body instanceof FormData) {
-    payload = body; // NO poner Content-Type; el navegador se encarga
-  } else if (body !== undefined && body !== null) {
-    headers["Content-Type"] = "application/json";
-    payload = JSON.stringify(body);
-  }
-
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method,
-    headers,
-    body: payload,
-  });
-
-  const text = await res.text();
+async function handle(res) {
   let data = null;
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = text;
-    }
-  }
-
+  try { data = await res.json(); } catch {}
   if (!res.ok) {
-    const msg =
-      (data && (data.error || data.message)) ||
-      `HTTP ${res.status} ${res.statusText}`;
+    const msg = (data && (data.error || data.message)) || `HTTP ${res.status} ${res.statusText}`;
     throw new Error(msg);
   }
-
   return data;
 }
 
-// ---------------------
-// Helpers HTTP
-// ---------------------
-export const apiGet = (path) => request("GET", path);
-export const apiPost = (path, body) => request("POST", path, body);
-export const apiPut = (path, body) => request("PUT", path, body);
-export const apiPatch = (path, body) => request("PATCH", path, body);
-export const apiDelete = (path, body) => request("DELETE", path, body);
-export const apiDel = apiDelete; // alias opcional
+/* ===== API ===== */
+export async function apiGet(path) {
+  const res = await fetch(`${BASE_URL}${path}`, { headers: authHeaders() });
+  return handle(res);
+}
+export async function apiPost(path, body) {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(body ?? {})
+  });
+  return handle(res);
+}
+export async function apiPatch(path, body) {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(body ?? {})
+  });
+  return handle(res);
+}
+export async function apiPut(path, body) {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(body ?? {})
+  });
+  return handle(res);
+}
+export async function apiDelete(path) {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "DELETE",
+    headers: authHeaders()
+  });
+  return handle(res);
+}
+
+export { BASE_URL };
