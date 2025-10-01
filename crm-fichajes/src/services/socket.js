@@ -1,4 +1,4 @@
-// crm-fichajes/src/socket.js
+// src/socket.js
 import { io } from "socket.io-client";
 import { BASE_URL, readToken } from "./services/api";
 
@@ -11,13 +11,13 @@ function safeGetToken() {
 
 export function getSocket(forceReconnect = false) {
   if (socket && !forceReconnect) return socket;
-
   if (socket && forceReconnect) {
     try { socket.disconnect(); } catch {}
     socket = null;
   }
 
   const token = safeGetToken();
+
   socket = io(BASE_URL, {
     transports: ["websocket"],
     autoConnect: true,
@@ -29,10 +29,28 @@ export function getSocket(forceReconnect = false) {
   });
 
   if (import.meta?.env?.DEV) {
-    socket.on("connect",       () => console.log("[socket] connected:", socket.id));
-    socket.on("disconnect",    (r) => console.log("[socket] disconnected:", r));
-    socket.on("connect_error", (e) => console.warn("[socket] error:", e?.message || e));
-    socket.on("reconnect_attempt", (n) => console.log("[socket] reconnect_attempt:", n));
+    socket.on("connect", () => console.log("[socket] connected:", socket.id));
+    socket.on("disconnect", (r) => console.log("[socket] disconnected:", r));
+    socket.on("connect_error", (e) => console.warn("[socket] error:", e?.message ?? e));
   }
+
   return socket;
+}
+
+export function disconnectSocket() {
+  if (socket) {
+    try { socket.disconnect(); } catch {}
+    socket = null;
+  }
+}
+
+export function on(event, handler) {
+  const s = getSocket();
+  s.on(event, handler);
+  return () => s.off(event, handler);
+}
+
+export function emit(event, payload) {
+  const s = getSocket();
+  s.emit(event, payload);
 }

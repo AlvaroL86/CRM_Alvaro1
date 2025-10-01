@@ -1,131 +1,158 @@
 // src/pages/chat/ChatPrivate.jsx
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { getSocket } from "../../socket";
+import { apiGet } from "../../services/api";
 
-const PINS_KEY = "chat_private_pins";
-
-function readPins() {
-  try { return JSON.parse(localStorage.getItem(PINS_KEY) || "[]"); } catch { return []; }
-}
-function writePins(arr) {
-  try { localStorage.setItem(PINS_KEY, JSON.stringify(arr)); } catch {}
-}
-
-function roomIdFor(a, b) {
-  const [x, y] = [String(a), String(b)].sort();
-  return `pm:${x}:${y}`;
+/** Genera un id de sala privada estable entre dos usuarios */
+function makePrivRoomId(a, b) {
+  const A = String(a ?? "");
+  const B = String(b ?? "");
+  return `priv:${[A, B].sort().join("_")}`;
 }
 
-export default function ChatPrivate({ openWithUser, onOpened }) {
+export default function ChatPrivate({ peer, onPeerChange, online = [] }) {
   const { user } = useAuth();
-  const [peer, setPeer] = useState(null);       // {id,nombre}
-  const [room, setRoom] = useState(null);       // string
   const [msgs, setMsgs] = useState([]);
   const [text, setText] = useState("");
-  const [pins, setPins] = useState(() => readPins());
   const scroller = useRef(null);
-  const seen = useRef(new Set());
 
-  // abrir con usuario recibido desde el panel
+  // autoscroll al final
   useEffect(() => {
-    if (!openWithUser?.id || !user?.id) return;
-    const r = roomIdFor(user.id, openWithUser.id);
-    setPeer({ id: openWithUser.id, nombre: openWithUser.nombre });
-    setRoom(r);
-    setMsgs([]);
-    onOpened?.();
-  }, [openWithUser?.id]);
+    if (!scroller.current) return;
+    scroller.current.scrollTop = scroller.current.scrollHeight;
+  }, [msgs.length]);
 
-  // join/leave room + listeners
   useEffect(() => {
-    if (!room) return;
+    if (!user?.id || !peer?.id) return;
+
+    const roomId = makePrivRoomId(user.id, peer.id);
     const s = getSocket();
-    s.emit("chat:join", room);
 
+    // nos anunciamos y nos unimos a la sala (también al reconectar)
+    const join = () => {
+      s.emit("auth:hello", { id: user.id, nombre: user?.nombre || user?.username || "" });
+      s.emit("chat:join", { roomId });
+    };
+    join();
+    s.on("connect", join);
+
+    // histórico de los últimos 200
+    apiGet(`/chat/messages?room=${encodeURIComponent(roomId)}&limit=200`)
+      .then((rows) => {
+        const mapped = (rows || []).map((r) => ({
+          id: r.id || r.created_at || Math.random(),
+          room_id: roomId,
+          text: r.text,
+          from: r.from,
+          created_at: r.created_at,
+        }));
+        setMsgs(mapped);
+      })
+      .catch(() => setMsgs([]));
+
+    // realtime
     const onMsg = (m) => {
-      if (m?.room_id !== room) return;
-      const key = m.id || `${m.room_id}|${m.from?.id}|${m.text}|${m.created_at}`;
-      if (seen.current.has(key)) return;
-      seen.current.add(key);
-      setMsgs((p) => [...p, m]);
+      if (m?.room_id !== roomId) return;
+      setMsgs((prev) => [...prev, m]);
     };
     s.on("chat:message", onMsg);
 
     return () => {
       s.off("chat:message", onMsg);
-      s.emit("chat:leave", { roomId: room });
+      s.off("connect", join);
+      s.emit("chat:leave", { roomId });
     };
-  }, [room]);
-
-  useEffect(() => {
-    if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
-  }, [msgs.length]);
+  }, [user?.id, peer?.id]);
 
   function send() {
     const t = text.trim();
-    if (!t || !room) return;
-    getSocket().emit("chat:send", { room, text: t });
+    if (!t || !user?.id || !peer?.id) return;
+
+    const roomId = makePrivRoomId(user.id, peer.id);
+    const s = getSocket();
+
+    s.emit("chat:send-room", {
+      roomId,
+      message: {
+        text: t,
+        from: { id: user.id, nombre: user?.nombre || user?.username || "" },
+      },
+    });
+
     setText("");
   }
+
   function onKey(e) {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
   }
 
-  function togglePin() {
-    if (!peer?.id) return;
-    const set = new Set(pins);
-    set.has(peer.id) ? set.delete(peer.id) : set.add(peer.id);
-    const arr = [...set];
-    setPins(arr);
-    writePins(arr);
+  // UI
+  if (!peer?.id) {
+    return (
+      <div className="p-4 text-sm text-gray-500">
+        Selecciona un usuario de la lista de “Conectados” para abrir un chat privado.
+      </div>
+    );
   }
 
-  const isPinned = useMemo(() => (peer?.id ? pins.includes(peer.id) : false), [pins, peer?.id]);
+  const peerName = peer?.nombre || peer?.username || peer?.id;
 
   return (
-    <div className="p-4">
-      <div className="mb-2 flex items-center justify-between text-sm text-gray-600">
-        <div>
-          Chat privado {peer ? <>con <strong>{peer.nombre || peer.id}</strong></> : "(selecciona un usuario)"}
+    <div className="flex h-[70vh] min-h-[420px] flex-col">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-sm text-gray-500">
+          Chat privado con <span className="font-medium">{peerName}</span>
         </div>
-        {peer && (
-          <button
-            className={`text-sm ${isPinned ? "text-yellow-500" : "text-gray-400"}`}
-            onClick={togglePin}
-            title={isPinned ? "Quitar de favoritos" : "Marcar como favorito"}
-          >
-            ★
-          </button>
-        )}
+        <select
+          className="rounded border px-2 py-1 text-sm"
+          value={peer?.id}
+          onChange={(e) => {
+            const next = online.find((u) => String(u.id) === e.target.value);
+            onPeerChange?.(next || null);
+          }}
+        >
+          {[peer, ...online.filter((u) => u.id !== peer.id)].map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.nombre || u.username || u.id}
+            </option>
+          ))}
+        </select>
       </div>
 
-      <div className="h-[60vh] overflow-y-auto rounded border bg-white p-3" ref={scroller}>
-        {!peer && <div className="text-gray-400">Elige un usuario en el panel de la izquierda.</div>}
-        {peer && msgs.map((m) => (
-          <div key={m.id || `${m.room_id}-${m.created_at}-${m.text}`} className="mb-3">
+      <div
+        ref={scroller}
+        className="flex-1 overflow-y-auto rounded border bg-white p-3"
+      >
+        {msgs.map((m) => (
+          <div key={m.id} className="mb-3">
             <div className="text-xs text-gray-500">
-              {m.from?.nombre || m.from?.id || "Usuario"} · {new Date(m.created_at).toLocaleTimeString()}
+              {m.from?.nombre || m.from?.id || "Usuario"} ·{" "}
+              {new Date(m.created_at).toLocaleTimeString()}
             </div>
             <div>{m.text}</div>
           </div>
         ))}
+        {!msgs.length && (
+          <div className="text-gray-400">No hay mensajes.</div>
+        )}
       </div>
 
       <div className="mt-3 flex gap-2">
         <textarea
+          className="flex-1 rounded border p-2"
+          rows={2}
+          placeholder="Escribe un mensaje…"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKey}
-          rows={2}
-          placeholder={peer ? "Escribe un mensaje…" : "Selecciona primero un usuario…"}
-          className="flex-1 rounded border p-2"
-          disabled={!peer}
         />
         <button
           onClick={send}
-          disabled={!peer}
-          className={`rounded px-3 py-2 text-white ${peer ? "bg-blue-600" : "bg-gray-400"}`}
+          className="rounded bg-blue-600 px-3 py-2 text-white"
         >
           Enviar
         </button>

@@ -114,6 +114,31 @@ INSERT INTO `chat_messages` VALUES ('183e0688-8cd1-11f0-9d03-ff948e6a3801','10b9
 UNLOCK TABLES;
 
 --
+-- Table structure for table `chat_room_members`
+--
+
+DROP TABLE IF EXISTS `chat_room_members`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `chat_room_members` (
+  `room_id` varchar(64) NOT NULL,
+  `user_id` varchar(36) NOT NULL,
+  `role` enum('owner','admin','member') DEFAULT 'member',
+  PRIMARY KEY (`room_id`,`user_id`),
+  CONSTRAINT `fk_crm_room` FOREIGN KEY (`room_id`) REFERENCES `chat_rooms` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `chat_room_members`
+--
+
+LOCK TABLES `chat_room_members` WRITE;
+/*!40000 ALTER TABLE `chat_room_members` DISABLE KEYS */;
+/*!40000 ALTER TABLE `chat_room_members` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `chat_rooms`
 --
 
@@ -203,6 +228,30 @@ LOCK TABLES `clientes_contactos` WRITE;
 /*!40000 ALTER TABLE `clientes_contactos` DISABLE KEYS */;
 INSERT INTO `clientes_contactos` VALUES ('f25c1760-88b3-11f0-a3c7-ff948e6a3801','f25b0954-88b3-11f0-a3c7-ff948e6a3801','Alvaro Luna','soporte@fidelityfornet.es','662111502',1,'2025-09-03 12:51:32');
 /*!40000 ALTER TABLE `clientes_contactos` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `departamentos`
+--
+
+DROP TABLE IF EXISTS `departamentos`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `departamentos` (
+  `id` char(36) NOT NULL,
+  `nombre` varchar(80) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `nombre` (`nombre`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `departamentos`
+--
+
+LOCK TABLES `departamentos` WRITE;
+/*!40000 ALTER TABLE `departamentos` DISABLE KEYS */;
+/*!40000 ALTER TABLE `departamentos` ENABLE KEYS */;
 UNLOCK TABLES;
 
 --
@@ -552,12 +601,15 @@ CREATE TABLE `usuarios` (
   `fecha_registro` datetime DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
   `password` varchar(255) NOT NULL,
+  `departamento_id` char(36) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `username` (`username`),
   UNIQUE KEY `email` (`email`),
   UNIQUE KEY `uq_usuarios_email` (`email`),
   UNIQUE KEY `uq_usuarios_telefono` (`telefono`),
   KEY `fk_usuarios_empresa` (`nif`),
+  KEY `fk_usuarios_departamentos` (`departamento_id`),
+  CONSTRAINT `fk_usuarios_departamentos` FOREIGN KEY (`departamento_id`) REFERENCES `departamentos` (`id`),
   CONSTRAINT `fk_usuarios_empresa` FOREIGN KEY (`nif`) REFERENCES `empresa` (`nif`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -568,7 +620,7 @@ CREATE TABLE `usuarios` (
 
 LOCK TABLES `usuarios` WRITE;
 /*!40000 ALTER TABLE `usuarios` DISABLE KEYS */;
-INSERT INTO `usuarios` VALUES ('5ecdc144-41fc-11f0-a28e-ff948e6a3801','admin01','Laura Martínez','laura.admin@empresa.com','2025-09-21 14:00:23','F00000000','600123456','admin',1,NULL,'2025-06-05 13:01:02',NULL,'$2b$10$JB5gQ6uk990AB2Js7h3w7uMvqZBzdHQ3j5DA3dtO7xaCXBHZz6mwq'),('5ecde6f5-41fc-11f0-a28e-ff948e6a3801','empleado01','Carlos Pérez','carlos@empresa.com','2025-09-21 19:13:34','F00000000','600654321','empleado',1,NULL,'2025-06-05 13:01:02',NULL,'$2b$10$yVc1K3NySaAEBCvzijFWHOr/2dyVQwyxSyKiAj1kzuG132D27/raO'),('5ecde794-41fc-11f0-a28e-ff948e6a3801','supervisor01','Marta López','marta@empresa.com',NULL,'F00000000','611223344','supervisor',1,NULL,'2025-06-05 13:01:02',NULL,'<HASH_QUE_COPIASTE>'),('aa47f61f-96e2-11f0-9d03-ff948e6a3801','superadmin','Alvaro','soporte@fidelityfornet.es','2025-09-21 19:07:37','F00000000','628872392','admin',1,NULL,'2025-09-21 14:01:06',NULL,'$2b$10$b/kcCos9ATGvFPEX7goOyOElAqRWvWY58T2gKto3TPUDJ9NJzFzBi');
+INSERT INTO `usuarios` VALUES ('5ecdc144-41fc-11f0-a28e-ff948e6a3801','admin01','Laura Martínez','laura.admin@empresa.com','2025-09-30 11:40:47','F00000000','600123456','admin',1,NULL,'2025-06-05 13:01:02',NULL,'$2b$10$JB5gQ6uk990AB2Js7h3w7uMvqZBzdHQ3j5DA3dtO7xaCXBHZz6mwq',NULL),('5ecde6f5-41fc-11f0-a28e-ff948e6a3801','empleado01','Carlos Pérez','carlos@empresa.com','2025-09-21 19:13:34','F00000000','600654321','empleado',1,NULL,'2025-06-05 13:01:02',NULL,'$2b$10$yVc1K3NySaAEBCvzijFWHOr/2dyVQwyxSyKiAj1kzuG132D27/raO',NULL),('5ecde794-41fc-11f0-a28e-ff948e6a3801','supervisor01','Marta López','marta@empresa.com',NULL,'F00000000','611223344','supervisor',1,NULL,'2025-06-05 13:01:02',NULL,'<HASH_QUE_COPIASTE>',NULL),('aa47f61f-96e2-11f0-9d03-ff948e6a3801','superadmin','Alvaro','soporte@fidelityfornet.es','2025-09-30 12:10:56','F00000000','628872392','admin',1,NULL,'2025-09-21 14:01:06',NULL,'$2b$10$b/kcCos9ATGvFPEX7goOyOElAqRWvWY58T2gKto3TPUDJ9NJzFzBi',NULL);
 /*!40000 ALTER TABLE `usuarios` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -589,4 +641,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-09-26 12:47:00
+-- Dump completed on 2025-09-30 12:16:53

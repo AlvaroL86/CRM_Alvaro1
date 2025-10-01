@@ -114,6 +114,31 @@ INSERT INTO `chat_messages` VALUES ('183e0688-8cd1-11f0-9d03-ff948e6a3801','10b9
 UNLOCK TABLES;
 
 --
+-- Table structure for table `chat_room_members`
+--
+
+DROP TABLE IF EXISTS `chat_room_members`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `chat_room_members` (
+  `room_id` varchar(100) NOT NULL,
+  `user_id` varchar(36) NOT NULL,
+  `role` enum('owner','admin','member') DEFAULT 'member',
+  PRIMARY KEY (`room_id`,`user_id`),
+  CONSTRAINT `chat_room_members_ibfk_1` FOREIGN KEY (`room_id`) REFERENCES `chat_rooms` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `chat_room_members`
+--
+
+LOCK TABLES `chat_room_members` WRITE;
+/*!40000 ALTER TABLE `chat_room_members` DISABLE KEYS */;
+/*!40000 ALTER TABLE `chat_room_members` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `chat_rooms`
 --
 
@@ -615,4 +640,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-09-26 12:47:00
+-- Dump completed on 2025-09-30 12:16:53

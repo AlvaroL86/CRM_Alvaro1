@@ -1,119 +1,117 @@
-// fichaje-api/index.js
+// index.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
-const path = require('path');
 const { Server } = require('socket.io');
+const path = require('path');
 const db = require('./db');
+const authMW = require('./middleware/auth');
 
 const app = express();
 
-/* -------- CORS -------- */
-const ALLOWED = (process.env.CORS_ORIGIN || 'http://localhost:5173')
+/* ---------- CORS ---------- */
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
   .split(',').map(s => s.trim()).filter(Boolean);
 
 app.use(cors({
-  origin: (origin, cb) => (!origin || ALLOWED.includes(origin)) ? cb(null, true) : cb(new Error('CORS: origin not allowed')),
+  origin: (origin, cb) => (!origin || allowedOrigins.includes(origin)) ? cb(null, true) : cb(new Error('CORS: origin not allowed')),
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type','Authorization'],
 }));
 app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-/* -------- Auth MW (debe ir ANTES de montar rutas que lo usan) -------- */
-const authMW = require('./middleware/auth');
-
-/* -------- Rutas REST -------- */
+/* ---------- rutas ---------- */
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-app.use('/auth',      require('./routes/auth'));
+app.use('/auth', require('./routes/auth'));
 app.use('/clientes',  authMW, require('./routes/clientes'));
 app.use('/usuarios',  authMW, require('./routes/usuarios'));
+app.use('/ausencias', authMW, require('./routes/ausencias'));
 app.use('/fichajes',  authMW, require('./routes/fichajes'));
+app.use('/tickets',   authMW, require('./routes/tickets'));
+
+/* NUEVO: roles (para UsersRoles.jsx) */
 app.use('/roles',     authMW, require('./routes/roles'));
 
-// Chat REST (histórico)
-const chatRoutes = require('./routes/chat');
-app.use('/chat', authMW, chatRoutes);
+/* Chat REST */
+app.use('/chat',      authMW, require('./routes/chat'));
 
-/* -------- HTTP + Socket.IO -------- */
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+/* ---------- HTTP + Socket.IO ---------- */
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: ALLOWED, methods: ['GET','POST','PUT','DELETE'] }
+  cors: { origin: allowedOrigins, methods: ['GET','POST','PUT','DELETE'] }
 });
 app.set('io', io);
 
-/* -------- Utilidades chat -------- */
+/* ---------- Chat sockets ---------- */
+const { randomUUID } = require('crypto');
+const { resolveRoomIdForUser, ensureGeneralIdForUser } = require('./utils/rooms');
+
 const online = new Map(); // userId -> { id, nombre, socketId }
 
-function dmRoomId(a, b) {
-  const [x, y] = [String(a), String(b)].sort();
-  return `dm:${x}:${y}`;
-}
-
-async function saveMessage(room, from, text, at) {
-  try {
-    await db.query(
-      'INSERT INTO chat_messages (room_id, user_id, text, created_at) VALUES (?,?,?,?)',
-      [room, from?.id ?? null, text, new Date(at || Date.now())]
-    );
-  } catch (e) {
-    console.warn('chat save fail:', e.message);
-  }
-}
-
-/* -------- Socket.IO -------- */
 io.on('connection', (socket) => {
-  // Identificación/presencia
-  socket.on('auth:hello', (user) => {
-    if (!user?.id) return;
-    socket.data.user = { id: String(user.id), nombre: user.nombre || '' };
-    online.set(socket.data.user.id, { id: socket.data.user.id, nombre: socket.data.user.nombre, socketId: socket.id });
+  // handshake de presencia
+  socket.on('auth:hello', (u) => {
+    if (!u?.id) return;
+    socket.data.user = { id: u.id, nombre: u.nombre || '' };
+    online.set(u.id, { id: u.id, nombre: socket.data.user.nombre, socketId: socket.id });
     io.emit('presence:list', Array.from(online.values()));
   });
 
-  // Unirse/dejar rooms
-  socket.on('chat:join', (room) => {
-    const roomId = typeof room === 'string' ? room : room?.roomId;
-    if (!roomId) return;
-    socket.join(roomId);
-  });
-  socket.on('chat:leave', (room) => {
-    const roomId = typeof room === 'string' ? room : room?.roomId;
-    if (!roomId) return;
-    socket.leave(roomId);
+  // Unirse a sala (acepta slug o id)
+  socket.on('chat:join', async ({ room }) => {
+    const user = socket.data.user;
+    if (!user?.id) return;
+    try {
+      const roomId = await resolveRoomIdForUser(user.id, room);
+      socket.join(roomId);
+      socket.emit('chat:joined', { room, roomId });
+    } catch (_) {}
   });
 
-  // Envío (general, grupos, DMs)
-  socket.on('chat:send', async ({ room, text }) => {
+  // Enviar a sala "general" o a una sala concreta (slug o id)
+  socket.on('chat:send', async ({ room = 'general', text }) => {
     const from = socket.data.user;
-    if (!from || !room || !text?.trim()) return;
-    const msg = {
-      id: Date.now(),
-      room_id: room,
-      text: text.trim(),
-      from,
-      created_at: new Date().toISOString(),
-    };
-
-    await saveMessage(room, from, msg.text, msg.created_at);
-    io.to(room).emit('chat:message', msg);
-
-    // Si es DM, avisa al otro aunque no esté en la room
-    if (room.startsWith('dm:')) {
-      const parts = room.split(':'); // dm:id1:id2
-      const otherId = parts[1] === from.id ? parts[2] : parts[1];
-      const rec = online.get(otherId);
-      if (rec?.socketId) {
-        io.to(rec.socketId).emit('chat:dm-notify', {
-          room, from, preview: msg.text, at: msg.created_at,
-        });
-      }
+    if (!from || !text?.trim()) return;
+    try {
+      const roomId = await resolveRoomIdForUser(from.id, room);
+      const now = new Date();
+      const id = randomUUID();
+      // Guardamos en CUERPO (coherente con tu BD)
+      await db.query(
+        'INSERT INTO chat_messages (id, room_id, user_id, cuerpo, tipo, created_at) VALUES (?,?,?,?,?,?)',
+        [id, roomId, from.id, text.trim(), 'texto', now]
+      );
+      const msg = { id, room_id: roomId, text: text.trim(), from, created_at: now.toISOString() };
+      io.to(roomId).emit('chat:message', msg);
+    } catch (e) {
+      console.warn('chat save fail:', e.message);
     }
   });
 
-  // Desconexión
+  // Variante explícita con roomId
+  socket.on('chat:send-room', async ({ roomId, message }) => {
+    const from = socket.data.user || message?.from;
+    if (!from || !message?.text?.trim()) return;
+    try {
+      // si te pasan slug por error, lo resolvemos
+      const rid = await resolveRoomIdForUser(from.id, roomId);
+      const now = new Date();
+      const id = message.id || randomUUID();
+      await db.query(
+        'INSERT INTO chat_messages (id, room_id, user_id, cuerpo, tipo, created_at) VALUES (?,?,?,?,?,?)',
+        [id, rid, from.id, message.text.trim(), 'texto', now]
+      );
+      const msg = { id, room_id: rid, text: message.text.trim(), from, created_at: now.toISOString() };
+      io.to(rid).emit('chat:message', msg);
+    } catch (e) {
+      console.warn('chat save fail:', e.message);
+    }
+  });
+
   socket.on('disconnect', () => {
     const u = socket.data.user;
     if (u) {
@@ -123,18 +121,13 @@ io.on('connection', (socket) => {
   });
 });
 
-/* -------- Ajuste zona horaria DB -------- */
+/* ---------- Ajuste zona horaria ---------- */
 (async () => {
-  try {
-    await db.query("SET time_zone = 'SYSTEM'");
-    console.log("DB time_zone = SYSTEM");
-  } catch (e) {
-    console.warn("No se pudo fijar time_zone:", e.message);
-  }
+  try { await db.query("SET time_zone = 'SYSTEM'"); }
+  catch (e) { console.warn("No se pudo fijar time_zone:", e.message); }
 })();
 
-/* -------- Arranque -------- */
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`✅ API escuchando en http://localhost:${PORT}`);
-});
+server.listen(PORT, () => console.log(`✅ API http://localhost:${PORT}`));
+
+module.exports = app;
