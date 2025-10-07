@@ -9,15 +9,10 @@ import ConfirmDeleteModal from "./ConfirmDeleteModal";
 import ChatMembersPanel from "./ChatMembersPanel";
 import { apiPost } from "../../services/api";
 
-// Componente para los usuarios conectados y click derecho privado
+// Componente usuarios conectados
 function ConnectedItem({ u, onOpenPrivate, onInviteToGroup }) {
   const [open, setOpen] = useState(false);
-
-  const openMenu = e => {
-    e.preventDefault?.();
-    setOpen(true);
-  };
-
+  const openMenu = e => { e.preventDefault?.(); setOpen(true); };
   return (
     <div
       style={{
@@ -85,15 +80,27 @@ export default function Chat() {
     }
   };
 
+  // Invitar desde conectados
   const inviteFromConnected = u => {
     setPreselectUser(u.id);
     if (selected.tipo === 'grupos') setInviteRoomId(selected.id);
     else alert("Abre un grupo y vuelve a invitar.");
   };
 
-  const onSelectRoom = r => { setSelected(r); resetUnread(r.id); };
+  // Seleccionar sala (recibe objeto con tipo, se asegura en Rooms.jsx)
+  const onSelectRoom = r => {
+    console.log("Seleccion SELECTED:", r);
+    setSelected(r);
+    resetUnread(r.id);
+  };
+
   const askDelete = (_roomId, doDelete) => setConfirmDelete({ open: true, doDelete });
-  const onConfirmDelete = async () => { try { await confirmDelete.doDelete?.(); } finally { setConfirmDelete({ open: false, doDelete: null }); } };
+  const onConfirmDelete = async () => {
+    try { await confirmDelete.doDelete?.(); }
+    finally { setConfirmDelete({ open: false, doDelete: null }); }
+  };
+
+  console.log("render selected global:", selected);
 
   return (
     <div style={{ display: "flex", height: "100%" }}>
@@ -131,14 +138,14 @@ export default function Chat() {
       {/* Panel derecho: detalle grupo/miembros */}
       <div style={{ minWidth: 250, borderLeft: "1px solid #eaeaea", padding: "0 16px" }}>
         <strong>Detalle</strong>
-        {selected.tipo === 'grupos'
-          ? <ChatMembersPanel roomId={selected.id} />
-          : (
-            <div>
-              <div>Sala: {selected.nombre}</div>
-              <div>Selecciona un grupo para ver y gestionar miembros.</div>
-            </div>
-          )}
+        {selected && selected.tipo === 'grupos' && selected.id ? (
+          <ChatMembersPanel roomId={selected.id} />
+        ) : (
+          <div>
+            <div>Sala: {selected?.nombre}</div>
+            <div>Selecciona un grupo para ver y gestionar miembros.</div>
+          </div>
+        )}
       </div>
       {/* Modales */}
       {inviteRoomId && (

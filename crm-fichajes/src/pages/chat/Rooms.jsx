@@ -1,30 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiDelete, apiGet, apiPost } from "../../services/api";
 
-// Efecto parpadeo para el icono del contador de mensajes no leídos
-const blinkStyle = `
-@keyframes blink-red {
-  0% { background: red; }
-  50% { background: #ff9999; }
-  100% { background: red; }
-}
-.msg-unread-blink {
-  animation: blink-red 1s infinite;
-  color: white;
-  border-radius: 50%;
-  display: inline-block;
-  padding: 0 6px;
-  font-weight: bold;
-  margin-left: 6px;
-}
-`;
-
-if (typeof document !== "undefined") {
-  const style = document.createElement("style");
-  style.innerHTML = blinkStyle;
-  document.head.appendChild(style);
-}
-
 const PIN_KEY = "chat_pins_v2";
 
 export default function Rooms({ selected, onSelect, onInvite, onAskDelete, getUnread }) {
@@ -64,7 +40,7 @@ export default function Rooms({ selected, onSelect, onInvite, onAskDelete, getUn
       const r = await apiPost("/chat/rooms", { nombre, members });
       setCreating(false);
       await refresh();
-      onSelect?.({ id: r.id, tipo: "grupos", nombre });
+      onSelect?.({ id: r.id, tipo: "grupos", nombre: r.nombre });
     } catch (e) { alert(e.message || "No se pudo crear el grupo"); }
   };
 
@@ -96,6 +72,7 @@ export default function Rooms({ selected, onSelect, onInvite, onAskDelete, getUn
           room={r}
           active={selected?.id === r.id}
           unread={getUnread?.(r.id) || 0}
+          // ----> Cambia aquí: añade tipo 'grupos'
           onClick={() => onSelect?.({ id: r.id, tipo: "grupos", nombre: r.nombre })}
           onInvite={() => onInvite?.(r.id)}
           onDelete={() => askDelete(r)}
@@ -139,7 +116,13 @@ function RoomItem({ room, active, onClick, unread = 0, onInvite, onDelete, pinne
       onClick={onClick}
     >
       <span style={{flexGrow: 1}}>{room.nombre}</span>
-      {!!unread && <span className="msg-unread-blink">{unread}</span>}
+      {!!unread && <span style={{
+        background: "red",
+        color: "white",
+        borderRadius: "50%",
+        padding: "0 6px",
+        marginLeft: 6
+      }}>{unread}</span>}
       <button onClick={onTogglePin} style={{ marginLeft: 8 }}>{pinned ? "★" : "☆"}</button>
       {onInvite && <button onClick={e => { e.stopPropagation(); onInvite(); }} style={{ marginLeft: 8 }}>+</button>}
       {onDelete && <button onClick={e => { e.stopPropagation(); onDelete(); }} style={{ marginLeft: 8, color: "red" }}>✖</button>}
@@ -147,7 +130,6 @@ function RoomItem({ room, active, onClick, unread = 0, onInvite, onDelete, pinne
   );
 }
 
-// Modal crear grupo (nombre + selección usuarios)
 function CreateGroupModal({ onClose, onCreate }) {
   const [nombre, setNombre] = useState("");
   const [users, setUsers] = useState([]);

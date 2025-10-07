@@ -12,8 +12,8 @@ export default function ChatMembersPanel({ roomId }) {
   const refresh = async () => {
     try {
       const resp = await apiGet(`/chat/room/${roomId}/members`);
+      console.log("Miembros panel:", resp);
       setList(resp || []);
-      // Solo muestra controles admins si el usuario es admin en esa sala
       setIsAdmin((resp || []).some(m => m.user_id === user?.id && m.rol === 'admin'));
     } catch (e) {
       setList([]);

@@ -35,10 +35,13 @@ router.get('/rooms', authMW, async (req, res) => {
 
     if (type === 'grupos') {
       const [rows] = await db.query(
-        `SELECT id, nombre, slug, created_at
-           FROM chat_rooms
-          WHERE nif=? AND tipo='grupo'
-          ORDER BY created_at DESC`, [nif]
+        `SELECT r.id, r.nombre, r.slug, r.created_at
+         FROM chat_rooms r
+         JOIN chat_room_members m ON m.room_id = r.id
+         WHERE r.nif = ? AND r.tipo = 'grupo' AND m.user_id = ?
+         GROUP BY r.id
+         ORDER BY r.created_at DESC`,
+        [nif, req.user.id]
       );
       return res.json(rows);
     }
@@ -46,13 +49,13 @@ router.get('/rooms', authMW, async (req, res) => {
     if (type === 'privados') {
       const [rows] = await db.query(
         `SELECT r.id, COALESCE(u.nombre, u.email, u.id) AS nombre
-           FROM chat_rooms r
-           JOIN chat_room_members m1 ON m1.room_id=r.id AND m1.user_id=?
-           JOIN chat_room_members m2 ON m2.room_id=r.id AND m2.user_id<>?
-      LEFT JOIN usuarios u ON u.id=m2.user_id
-          WHERE r.nif=? AND r.tipo='privado'
-          GROUP BY r.id
-          ORDER BY r.created_at DESC`,
+         FROM chat_rooms r
+         JOIN chat_room_members m1 ON m1.room_id=r.id AND m1.user_id=?
+         JOIN chat_room_members m2 ON m2.room_id=r.id AND m2.user_id<>?
+         LEFT JOIN usuarios u ON u.id=m2.user_id
+         WHERE r.nif=? AND r.tipo='privado'
+         GROUP BY r.id
+         ORDER BY r.created_at DESC`,
         [req.user.id, req.user.id, nif]
       );
       return res.json(rows);
