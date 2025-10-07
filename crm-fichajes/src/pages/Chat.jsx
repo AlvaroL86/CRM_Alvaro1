@@ -1,60 +1,121 @@
-// fichaje-api/routes/chat.js
-const express = require('express');
-const router = express.Router();
-const db = require('../db');
+// src/pages/Chat.jsx
+import { useEffect, useState } from "react";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { apiGet, apiPost } from "../services/api";
+import ChatTabs from "./chat/ChatTabs";
+import NewChatModal from "./chat/NewChatModal";
 
-// crea tablas si no existen (idempotente)
-async function ensure() {
-  await db.query(`CREATE TABLE IF NOT EXISTS chat_rooms(
-    id VARCHAR(64) PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    owner_id VARCHAR(36) NULL,
-    is_group TINYINT(1) DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+const HIDE_KEY = "chat_hide_presence";
 
-  await db.query(`CREATE TABLE IF NOT EXISTS chat_room_members(
-    room_id VARCHAR(64) NOT NULL,
-    user_id VARCHAR(36) NOT NULL,
-    role ENUM('owner','admin','member') DEFAULT 'member',
-    PRIMARY KEY(room_id,user_id),
-    FOREIGN KEY (room_id) REFERENCES chat_rooms(id) ON DELETE CASCADE
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+export default function Chat() {
+  const [online, setOnline] = useState([]);   // [{id, nombre}]
+  const [modalOpen, setModalOpen] = useState(false);
+  const [hidePresence, setHidePresence] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(HIDE_KEY) || "false"); } catch { return false; }
+  });
 
-  await db.query(`CREATE TABLE IF NOT EXISTS chat_messages(
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    room_id VARCHAR(64) NOT NULL,
-    user_id VARCHAR(36) NULL,
-    text TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX(room_id, created_at)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+
+  // Presencia: poll cada 20s
+  useEffect(() => {
+    let timer;
+    const load = async () => {
+      try {
+        const data = await apiGet("/chat/online");
+        setOnline(
+          (data || []).map((u) => ({
+            id: u.id,
+            nombre: u.nombre || u.username || "Usuario",
+          }))
+        );
+      } catch {}
+    };
+    load();
+    timer = setInterval(load, 20000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Guardar preferencia ocultar/mostrar panel
+  useEffect(() => {
+    localStorage.setItem(HIDE_KEY, JSON.stringify(hidePresence));
+  }, [hidePresence]);
+
+  // Crear sala desde modal
+  const handleCreate = async ({ name, type, members }) => {
+    const payload = {
+      name,
+      type: type === "private" ? "privado" : "grupo",
+      members: members || [],
+    };
+    const { id } = await apiPost("/chat/rooms", payload); // { id }
+    setModalOpen(false);
+    navigate(payload.type === "privado" ? "/chat/private" : "/chat/groups");
+    // si quieres: navigate(`/chat/groups?select=${id}`)
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Tabs con el botón + en el propio componente */}
+      <ChatTabs onNewChat={() => setModalOpen(true)} />
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        {/* Conectados (colapsable) */}
+        {!hidePresence && (
+          <aside className="h-96 overflow-auto rounded bg-white p-3 shadow md:col-span-1">
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="font-semibold text-gray-800">Conectados</h3>
+              <button
+                className="text-xs text-gray-500 hover:underline"
+                onClick={() => setHidePresence(true)}
+                title="Ocultar panel"
+              >
+                Ocultar
+              </button>
+            </div>
+
+            {online.length === 0 && (
+              <div className="text-sm text-gray-500">Nadie conectado</div>
+            )}
+            {online.map((u) => (
+              <div key={u.id} className="text-sm capitalize text-gray-800">
+                • {u.nombre}
+              </div>
+            ))}
+
+            <div className="mt-4 rounded border p-2 text-xs text-gray-500">
+              {pathname.startsWith("/chat/groups") &&
+                "Selecciona un grupo o crea uno nuevo."}
+              {pathname.startsWith("/chat/private") &&
+                "Selecciona un chat privado o crea uno nuevo."}
+              {pathname === "/chat/saved" &&
+                "Selecciona una sala guardada para continuar."}
+            </div>
+          </aside>
+        )}
+
+        {/* Contenido de la pestaña */}
+        <main className={hidePresence ? "md:col-span-4" : "md:col-span-3"}>
+          {hidePresence && (
+            <div className="mb-2">
+              <button
+                className="text-xs text-gray-500 hover:underline"
+                onClick={() => setHidePresence(false)}
+                title="Mostrar panel Conectados"
+              >
+                Mostrar Conectados
+              </button>
+            </div>
+          )}
+          <Outlet />
+        </main>
+      </div>
+
+      <NewChatModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onCreate={handleCreate}
+      />
+    </div>
+  );
 }
-ensure().catch(console.error);
-
-// GET /chat/messages?room=general&limit=200&before=2025-09-29T23:59:59.000Z
-router.get('/messages', async (req, res) => {
-  const room = (req.query.room || 'general').trim();
-  const limit = Math.min(parseInt(req.query.limit || '200', 10), 500);
-  const before = req.query.before;
-
-  const sql = `
-    SELECT id, room_id, user_id, text, created_at
-    FROM chat_messages
-    WHERE room_id = ?
-    ${before ? 'AND created_at < ?' : ''}
-    ORDER BY created_at DESC
-    LIMIT ?
-  `;
-  const params = before ? [room, before, limit] : [room, limit];
-
-  try {
-    const [rows] = await db.query(sql, params);
-    rows.reverse(); // ascendente para el UI
-    res.json(rows);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-module.exports = router;

@@ -10,31 +10,44 @@ export default function ChatMembersPanel({ roomId }) {
   const [showInvite, setShowInvite] = useState(false);
 
   const refresh = async () => {
+    if (!roomId) {
+      setList([]);
+      return;
+    }
+    
     try {
+      console.log("Cargando miembros para sala:", roomId);
       const resp = await apiGet(`/chat/room/${roomId}/members`);
-      console.log("Miembros panel:", resp);
+      console.log("Miembros obtenidos:", resp);
       setList(resp || []);
       setIsAdmin((resp || []).some(m => m.user_id === user?.id && m.rol === 'admin'));
     } catch (e) {
+      console.error("Error al cargar miembros:", e);
       setList([]);
       setIsAdmin(false);
     }
   };
 
-  useEffect(() => { if (roomId) refresh(); }, [roomId]);
+  useEffect(() => {
+    refresh();
+  }, [roomId]);
 
   const setRole = async (uid, rol) => {
     try {
       await apiPatch(`/chat/room/${roomId}/members/${uid}`, { rol });
       refresh();
-    } catch (e) { alert(e.message || "No se pudo actualizar"); }
+    } catch (e) { 
+      alert(e.message || "No se pudo actualizar el rol"); 
+    }
   };
 
   const removeMember = async uid => {
     try {
       await apiDelete(`/chat/room/${roomId}/members/${uid}`);
       refresh();
-    } catch (e) { alert(e.message || "No se pudo eliminar miembro"); }
+    } catch (e) { 
+      alert(e.message || "No se pudo eliminar miembro"); 
+    }
   };
 
   return (
@@ -42,7 +55,9 @@ export default function ChatMembersPanel({ roomId }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h3>Miembros</h3>
         {isAdmin && (
-          <button onClick={() => setShowInvite(true)} style={{ fontSize: 14 }}>+ Añadir</button>
+          <button onClick={() => setShowInvite(true)} style={{ fontSize: 14 }}>
+            + Añadir
+          </button>
         )}
       </div>
       <div>
@@ -81,15 +96,20 @@ export default function ChatMembersPanel({ roomId }) {
               )}
             </div>
           ))
-        ) : <div>Sin miembros</div>}
+        ) : (
+          <div>Sin miembros</div>
+        )}
       </div>
-      {showInvite &&
+      {showInvite && (
         <InviteToGroupModal
           roomId={roomId}
           preselectUserId={null}
-          onClose={() => { setShowInvite(false); refresh(); }}
+          onClose={() => { 
+            setShowInvite(false); 
+            refresh(); 
+          }}
         />
-      }
+      )}
     </div>
   );
 }

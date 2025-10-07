@@ -138,20 +138,14 @@ export default function Chat() {
       {/* Panel derecho: detalle grupo/miembros */}
       <div style={{ minWidth: 250, borderLeft: "1px solid #eaeaea", padding: "0 16px" }}>
         <strong>Detalle</strong>
-        <div style={{ background: "#f6f6f6", padding: 8, margin: "8px 0", fontSize: "12px", borderRadius: 6 }}>
-          <b>selected:</b>
-          <pre style={{ maxHeight: 140, overflow: "auto" }}>{JSON.stringify(selected, null, 2)}</pre>
-        </div>
-        {/* Monta el panel de miembros si hay id y tipo */}
-        {selected && selected.id && selected.tipo
-          ? <ChatMembersPanel roomId={selected.id} />
-          : (
-            <div>
-              <div>Sala: {selected?.nombre}</div>
-              <div>Selecciona un grupo para ver y gestionar miembros.</div>
-            </div>
-          )
-        }
+        {selected && selected.tipo === 'grupos' && selected.id ? (
+          <ChatMembersPanel roomId={selected.id} />
+        ) : (
+          <div>
+            <div>Sala: {selected?.nombre}</div>
+            <div>Selecciona un grupo para ver y gestionar miembros.</div>
+          </div>
+        )}
       </div>
       {/* Modales */}
       {inviteRoomId && (
