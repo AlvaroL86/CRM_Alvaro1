@@ -11,19 +11,22 @@ const {
 } = require('../utils/rooms');
 
 /* Online últimos 10 min */
-router.get('/online', authMW, async (req, res) => {
+router.get('/room/:id/members', authMW, async (req, res) => {
   try {
-    const nif = await getUserNif(req.user.id);
+    const roomId = String(req.params.id);
+    // Utiliza la tabla chat_room_members y usuarios
     const [rows] = await db.query(
-      `SELECT id, COALESCE(nombre, username, email) AS nombre
-         FROM usuarios
-        WHERE nif=? AND last_seen > (NOW() - INTERVAL 10 MINUTE)`,
-      [nif]
+      `SELECT m.user_id, m.rol, u.nombre, u.email
+      FROM chat_room_members m
+      LEFT JOIN usuarios u ON u.id = m.user_id
+      WHERE m.room_id = ?
+      ORDER BY (m.rol='admin') DESC, u.nombre ASC`,
+      [roomId]
     );
-    res.json(rows || []);
+    res.json(rows);
   } catch (e) {
-    console.error('GET /chat/online', e);
-    res.json([]);
+    console.error('GET /chat/room/:id/members', e);
+    res.status(500).json({ error: 'Error miembros' });
   }
 });
 
@@ -209,11 +212,13 @@ router.get('/room/:id/members', authMW, async (req, res) => {
     const roomId = String(req.params.id);
     const [rows] = await db.query(
       `SELECT m.user_id, m.rol, u.nombre, u.email
-         FROM chat_room_members m
-    LEFT JOIN usuarios u ON u.id=m.user_id
-        WHERE m.room_id=?
-     ORDER BY m.rol DESC, u.nombre ASC`, [roomId]
+       FROM chat_room_members m
+       LEFT JOIN usuarios u ON u.id = m.user_id
+       WHERE m.room_id = ?
+       ORDER BY (m.rol='admin') DESC, u.nombre ASC`,
+      [roomId]
     );
+    console.log("MIEMBROS GRUPO:", roomId, rows); // <-- Esto debe aparecer en terminal Node
     res.json(rows);
   } catch (e) {
     console.error('GET /chat/room/:id/members', e);
