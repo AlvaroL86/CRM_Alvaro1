@@ -296,5 +296,23 @@ router.get('/users', authMW, async (req, res) => {
     res.status(500).json({ error: 'Error usuarios' });
   }
 });
+// Eliminar miembro de un grupo (solo admin puede eliminar)
+router.delete('/room/:id/members/:userId', authMW, async (req, res) => {
+  try {
+    const roomId = String(req.params.id);
+    const userId = String(req.params.userId);
+    // Solo admin del grupo puede eliminar
+    const [[adm]] = await db.query(
+      `SELECT 1 as ok FROM chat_room_members WHERE room_id=? AND user_id=? AND rol='admin' LIMIT 1`,
+      [roomId, req.user.id]
+    );
+    if (!adm) return res.status(403).json({ error: 'no_admin' });
+    await db.query(`DELETE FROM chat_room_members WHERE room_id=? AND user_id=?`, [roomId, userId]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('DELETE member', e);
+    res.status(500).json({ error: 'No se pudo eliminar miembro' });
+  }
+});
 
 module.exports = router;
