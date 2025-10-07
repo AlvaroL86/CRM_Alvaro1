@@ -1,121 +1,147 @@
-// src/pages/chat/chat.jsx
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { getSocket } from "../../socket";
-import ChatGeneral from "./ChatGeneral";
+import ChatThread from "./ChatThread";
+import Rooms from "./Rooms";
+import useUnread from "./useUnread";
+import InviteToGroupModal from "./InviteToGroupModal";
+import ConfirmDeleteModal from "./ConfirmDeleteModal";
+import ChatMembersPanel from "./ChatMembersPanel";
+import { apiPost } from "../../services/api";
 
-function ConnectedPanel({ list = [], meId, onOpenMenu }) {
-  const filtered = useMemo(() => (list || []).filter((u) => u.id !== meId), [list, meId]);
+function ConnectedItem({ u, onOpenPrivate, onInviteToGroup }) {
+  const [open, setOpen] = useState(false);
+  const openMenu = (e) => { e.preventDefault?.(); setOpen(true); };
   return (
-    <div className="rounded border bg-white">
-      <div className="border-b p-2 text-sm font-medium">Conectados</div>
-      <div className="p-2">
-        <input className="mb-2 w-full rounded border px-2 py-1 text-sm" placeholder="Buscar usuario…" />
-        {!filtered.length && (
-          <div className="py-8 text-center text-xs text-gray-400">Nadie conectado.</div>
-        )}
-        <ul className="space-y-1">
-          {filtered.map((u) => (
-            <li key={u.id}>
-              <button
-                onClick={(e) => onOpenMenu?.(u, e.currentTarget)}
-                className="flex w-full items-center justify-between rounded px-2 py-1 text-left text-sm hover:bg-gray-50"
-              >
-                <span className="truncate">{u.nombre || u.id}</span>
-                <span className="select-none text-amber-400">★</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
+    <div className="relative">
+      <button className="flex w-full items-center justify-between rounded px-2 py-1 text-sm hover:bg-gray-50"
+        onClick={()=>setOpen(v=>!v)} onContextMenu={openMenu} title="Opciones">
+        <span className="truncate">{u.nombre || u.id}</span>
+        <span className="ml-2 inline-block h-2 w-2 rounded-full bg-green-500" />
+      </button>
+      {open && (
+        <div className="absolute left-0 z-10 mt-1 w-44 rounded border bg-white text-sm shadow">
+          <button className="block w-full px-2 py-1 text-left hover:bg-gray-50" onClick={()=>{setOpen(false); onOpenPrivate?.(u);}}>Privado</button>
+          <button className="block w-full px-2 py-1 text-left hover:bg-gray-50" onClick={()=>{setOpen(false); onInviteToGroup?.(u);}}>Invitar a grupo</button>
+        </div>
+      )}
     </div>
   );
 }
 
 export default function Chat() {
   const { user, ready, isAuthenticated } = useAuth();
-  const [tab, setTab] = useState("general");
-  const [showLeft, setShowLeft] = useState(() => localStorage.getItem("chat_hide_presence") !== "true");
   const [online, setOnline] = useState([]);
+  const [selected, setSelected] = useState({ id: "general", tipo: "general", nombre: "General" });
 
-  const toggleLeft = () => {
-    const next = !showLeft;
-    setShowLeft(next);
-    localStorage.setItem("chat_hide_presence", (!next).toString());
-  };
+  const [inviteRoomId, setInviteRoomId] = useState(null);
+  const [preselectUser, setPreselectUser] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState({ open: false, doDelete: null });
+
+  const { unreadCount, resetUnread, notifyOnMessage } = useUnread(selected.id);
 
   useEffect(() => {
     if (!ready || !isAuthenticated) return;
     const s = getSocket();
 
     const onPresence = (list) => setOnline(Array.isArray(list) ? list : []);
-    s.on?.("presence:list", onPresence);
+    s.on("presence:list", onPresence);
 
-    // fuerza anuncio propio por si entras directo
     if (user?.id) s.emit("auth:hello", { id: user.id, nombre: user.nombre || user.username || String(user.id) });
 
-    return () => s.off?.("presence:list", onPresence);
-  }, [ready, isAuthenticated, user?.id]);
+    const onMsg = (msg) => notifyOnMessage(msg);
+    s.on("chat:message", onMsg);
+
+    return () => {
+      s.off("presence:list", onPresence);
+      s.off("chat:message", onMsg);
+    };
+  }, [ready, isAuthenticated, user?.id, notifyOnMessage]);
+
+  const filteredOnline = useMemo(() => (online || []).filter(u => u.id && u.id !== user?.id), [online, user?.id]);
+
+  const openPriv = async (u) => {
+    try {
+      const r = await apiPost(`/chat/rooms/private`, { userId: u.id });
+      setSelected({ id: r.id, tipo: 'privado', nombre: r.nombre });
+      resetUnread(r.id);
+    } catch (e) { alert(e.message || "No se pudo abrir el privado"); }
+  };
+
+  const inviteFromConnected = (u) => {
+    setPreselectUser(u.id);
+    if (selected.tipo === 'grupos') setInviteRoomId(selected.id);
+    else alert("Abre un grupo y vuelve a invitar.");
+  };
+
+  const onSelectRoom = (r) => { setSelected(r); resetUnread(r.id); };
+
+  const askDelete = (_roomId, doDelete) => setConfirmDelete({ open: true, doDelete });
+  const onConfirmDelete = async () => { try { await confirmDelete.doDelete?.(); } finally { setConfirmDelete({ open: false, doDelete: null }); } };
 
   return (
-    <div className="p-4">
-      {/* Tabs + toggle */}
-      <div className="mb-3 flex items-center justify-between">
-        <div className="flex gap-2">
-          {["general", "guardados", "privados", "grupos"].map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`rounded px-3 py-1 text-sm ${tab === t ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700"}`}
-            >
-              {t[0].toUpperCase() + t.slice(1)}
-            </button>
-          ))}
-        </div>
-        <button onClick={toggleLeft} className="text-xs text-blue-600 hover:underline">
-          {showLeft ? "Ocultar panel" : "Mostrar panel"}
-        </button>
-      </div>
+    <div className="p-4 h-[calc(100vh-90px)]">
+      <div className="grid h-full grid-cols-[260px_1fr_260px] gap-3">
+        <aside className="flex min-h-0 flex-col rounded border bg-white">
+          <div className="border-b px-3 py-2 text-sm font-semibold">Conectados</div>
+          <div className="max-h-48 overflow-y-auto p-2">
+            {!filteredOnline.length && <div className="py-6 text-center text-xs text-gray-400">Nadie conectado.</div>}
+            <ul className="space-y-1">
+              {filteredOnline.map(u => (
+                <li key={u.id}>
+                  <ConnectedItem u={u} onOpenPrivate={openPriv} onInviteToGroup={inviteFromConnected} />
+                </li>
+              ))}
+            </ul>
+          </div>
 
-      {/* Layout */}
-      <div className={`grid gap-4 ${showLeft ? "grid-cols-[260px_1fr]" : "grid-cols-1"}`}>
-        {showLeft && (
-          <ConnectedPanel
-            meId={user?.id}
-            list={online}
-            onOpenMenu={(u) => console.log("Acciones usuario", u)}
+          <div className="border-t" />
+          <div className="flex-1 min-h-0 overflow-y-auto p-2">
+            <Rooms
+              selected={selected}
+              onSelect={onSelectRoom}
+              onInvite={(roomId)=>{ setInviteRoomId(roomId); setPreselectUser(null); }}
+              onAskDelete={askDelete}
+              getUnread={(roomId)=>unreadCount(roomId)}
+            />
+          </div>
+        </aside>
+
+        <section className="min-w-0 rounded border bg-white">
+          <ChatThread
+            room={selected.id === "general" ? "general" : selected.id}
+            title={selected.nombre || "Chat"}
+            activeRoomId={selected.id}
+            onSeen={() => resetUnread(selected.id)}
           />
-        )}
-
-        <section className="relative min-w-0">
-          {/* botón flotante cuando el panel está oculto */}
-          {!showLeft && (
-            <button
-              className="absolute left-2 top-2 z-10 text-xs px-2 py-1 border rounded bg-white shadow"
-              onClick={toggleLeft}
-            >
-              Mostrar panel
-            </button>
-          )}
-
-          {tab === "general" && <ChatGeneral />}
-          {tab === "guardados" && (
-            <div className="rounded border bg-white p-4 text-sm text-gray-500">
-              Guardados: en construcción (usará tus ⭐ locales).
-            </div>
-          )}
-          {tab === "privados" && (
-            <div className="rounded border bg-white p-4 text-sm text-gray-500">
-              Privados: en construcción (wiring de salas privadas 1:1).
-            </div>
-          )}
-          {tab === "grupos" && (
-            <div className="rounded border bg-white p-4 text-sm text-gray-500">
-              Grupos: el listado y la creación los tenemos en progreso.
-            </div>
-          )}
         </section>
+
+        <aside className="rounded border bg-white">
+          <div className="border-b px-3 py-2 text-sm font-semibold">Detalle</div>
+          {selected.tipo === 'grupos'
+            ? <ChatMembersPanel roomId={selected.id} />
+            : (
+              <div className="p-3 text-sm">
+                <div className="mb-2">
+                  <div className="text-xs text-gray-500">Sala</div>
+                  <div className="font-medium">{selected.nombre}</div>
+                </div>
+                <div className="text-xs text-gray-500">Selecciona un grupo para ver y gestionar miembros.</div>
+              </div>
+            )}
+        </aside>
       </div>
+
+      {inviteRoomId && (
+        <InviteToGroupModal
+          roomId={inviteRoomId}
+          preselectUserId={preselectUser}
+          onClose={()=>{ setInviteRoomId(null); setPreselectUser(null); }}
+        />
+      )}
+      {confirmDelete.open && (
+        <ConfirmDeleteModal title="¿Eliminar grupo?" onCancel={()=>setConfirmDelete({ open:false, doDelete:null })} onConfirm={onConfirmDelete} />
+      )}
     </div>
   );
 }

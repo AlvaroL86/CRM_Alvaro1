@@ -33,24 +33,17 @@ router.post('/login', async (req, res) => {
 
     let ok = false;
 
-    // master pass de desarrollo (si coincide exactamente)
     if (DEV_MASTER_PASS && passwordRaw === DEV_MASTER_PASS) {
       ok = true;
     } else {
       const stored = String(u.password || '');
-
       if (isBcryptHash(stored)) {
-        // 1º intento: tal cual
         ok = await bcrypt.compare(passwordRaw, stored);
-        // 2º intento: tolerar espacios al final (p.ej. "Admin123! ")
         if (!ok && /\s$/.test(passwordRaw)) {
           ok = await bcrypt.compare(passwordRaw.replace(/\s+$/, ''), stored);
         }
       } else {
-        // Compatibilidad con contraseñas antiguas en texto plano
-        ok =
-          passwordRaw === stored ||
-          passwordRaw.replace(/\s+$/, '') === stored;
+        ok = passwordRaw === stored || passwordRaw.replace(/\s+$/, '') === stored;
       }
     }
 
@@ -78,7 +71,7 @@ router.post('/login', async (req, res) => {
     });
   } catch (e) {
     console.error('POST /auth/login', e);
-    return res.status(500).json({ error: 'Error interno' });
+    return res.status(500).json({ error: 'Error interno' }); // <-- siempre responde
   }
 });
 
@@ -99,7 +92,7 @@ router.get('/me', verificarToken, async (req, res) => {
   }
 });
 
-// Alias (algunos componentes lo usan)
+// Alias
 router.get('/whoami', verificarToken, async (req, res) => {
   try {
     const [[u]] = await db.query(
@@ -116,21 +109,18 @@ router.get('/whoami', verificarToken, async (req, res) => {
   }
 });
 
-// ... ya tendrás login, me, etc ...
-
+/* ============ PATCH /me ============ */
 router.patch('/me', verificarToken, async (req, res) => {
   try {
-    const uid = req.user.id; // viene del token
+    const uid = req.user.id;
     const { nombre, email, telefono, password } = req.body || {};
 
-    // Unicidad: email
     if (email) {
       const [[dupE]] = await db.query(
         `SELECT id FROM usuarios WHERE email=? AND id<>? LIMIT 1`, [String(email), uid]
       );
       if (dupE) return res.status(409).json({ error: 'email_duplicado' });
     }
-    // Unicidad: telefono
     if (telefono) {
       const [[dupT]] = await db.query(
         `SELECT id FROM usuarios WHERE telefono=? AND id<>? LIMIT 1`, [String(telefono), uid]

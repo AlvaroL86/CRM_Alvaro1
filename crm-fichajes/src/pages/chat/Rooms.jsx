@@ -1,96 +1,175 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useAuth } from "../../context/AuthContext";
-import { getSocket } from "../../socket";
-import NewChatModal from "./NewChatModal";
+import { useEffect, useMemo, useState } from "react";
+import { apiDelete, apiGet, apiPost } from "../../services/api";
 
-const LS_GROUPS = "chat_groups";
-const LS_PIN_GROUPS = "chat_pinned_groups";
+/* favoritos por id */
+const PIN_KEY = "chat_pins_v2";
 
-function useLocalList(key, fallback = []) {
-  const [list, setList] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(key) || "[]"); } catch { return fallback; }
+export default function Rooms({ selected, onSelect, onInvite, onAskDelete, getUnread }) {
+  const [grupos, setGrupos] = useState([]);
+  const [privados, setPrivados] = useState([]);
+  const [creating, setCreating] = useState(false);
+
+  const [pins, setPins] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(PIN_KEY) || "[]"); } catch { return []; }
   });
-  const save = (next) => { setList(next); try { localStorage.setItem(key, JSON.stringify(next)); } catch {} };
-  return [list, save];
-}
+  useEffect(() => localStorage.setItem(PIN_KEY, JSON.stringify(pins)), [pins]);
 
-export default function Rooms() {
-  const { user } = useAuth();
-  const [groups, setGroups] = useLocalList(LS_GROUPS, []);
-  const [pins, setPins] = useLocalList(LS_PIN_GROUPS, []);
-  const [current, setCurrent] = useState(null);
-  const [openModal, setOpenModal] = useState(false);
-  const s = getSocket();
+  const refresh = async () => {
+    try {
+      const [g, p] = await Promise.all([
+        apiGet("/chat/rooms?type=grupos"),
+        apiGet("/chat/rooms?type=privados"),
+      ]);
+      setGrupos(Array.isArray(g) ? g : []);
+      setPrivados(Array.isArray(p) ? p : []);
+    } catch {}
+  };
+  useEffect(() => { refresh(); }, []);
 
-  useEffect(() => { s.emit('chat:join', 'general'); }, [s]); // noop, placeholder
+  const togglePin = (id) => setPins((old) => (old.includes(id) ? old.filter(x=>x!==id) : [...old, id]));
 
-  const togglePin = (id) => {
-    setPins(prev => {
-      const next = prev.includes(id) ? prev.filter(x => x !== id) : [id, ...prev];
-      return next;
-    });
+  const sorter = (a,b) => {
+    const pa = pins.includes(a.id)?0:1, pb = pins.includes(b.id)?0:1;
+    if (pa !== pb) return pa - pb;
+    return (a.nombre || "").localeCompare(b.nombre || "");
   };
 
-  const ordered = useMemo(() => {
-    const mapPin = new Set(pins);
-    const arr = [...groups].sort((a,b) => {
-      const ap = mapPin.has(a.id) ? 0 : 1;
-      const bp = mapPin.has(b.id) ? 0 : 1;
-      if (ap !== bp) return ap - bp;
-      return (a.name || '').localeCompare(b.name || '');
-    });
-    return arr;
-  }, [groups, pins]);
+  const gruposSorted = useMemo(() => [...grupos].sort(sorter), [grupos, pins]);
+  const privadosSorted = useMemo(() => [...privados].sort(sorter), [privados, pins]);
 
-  function createGroup(data) {
-    const id = `grp_${Date.now()}`;
-    const g = { id, name: data.name, owner_id: user?.id || null, members: data.members || [] };
-    setGroups(prev => [g, ...prev]);
-    setCurrent(g);
-  }
+  const doCreate = async ({ nombre, members }) => {
+    try {
+      const r = await apiPost("/chat/rooms", { nombre, members });
+      setCreating(false);
+      await refresh();
+      onSelect?.({ id: r.id, tipo: "grupos", nombre });
+    } catch (e) { alert(e.message || "No se pudo crear el grupo"); }
+  };
+
+  const askDelete = (room) => {
+    const doDelete = async () => {
+      await apiDelete(`/chat/rooms/${room.id}`);
+      await refresh();
+      if (selected?.id === room.id) onSelect?.({ id: "general", tipo: "general", nombre: "General" });
+    };
+    onAskDelete?.(room.id, doDelete);
+  };
 
   return (
-    <div className="p-4">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="text-sm font-medium">Grupos</div>
-        <button className="rounded bg-blue-600 px-3 py-1 text-sm text-white" onClick={()=>setOpenModal(true)}>+ Nuevo chat</button>
+    <div className="space-y-3">
+      <section>
+        <div className="mb-1 text-xs font-semibold text-gray-500">General</div>
+        <RoomItem
+          key="general"
+          room={{ id: "general", nombre: "General" }}
+          active={selected?.id==="general"}
+          unread={getUnread?.("general") || 0}
+          onClick={() => onSelect?.({ id: "general", tipo: "general", nombre: "General" })}
+          pinned={pins.includes("general")}
+          onTogglePin={() => togglePin("general")}
+        />
+      </section>
+
+      <section>
+        <div className="mb-1 flex items-center justify-between text-xs font-semibold text-gray-500">
+          <span>Grupos</span>
+          <button className="rounded bg-blue-600 px-2 py-0.5 text-white" onClick={()=>setCreating(true)}>+ Nuevo</button>
+        </div>
+        <ul className="space-y-1">
+          {gruposSorted.map((r) => (
+            <RoomItem
+              key={r.id}
+              room={r}
+              active={selected?.id===r.id}
+              unread={getUnread?.(r.id) || 0}
+              onClick={() => onSelect?.({ id: r.id, tipo: "grupos", nombre: r.nombre })}
+              onInvite={() => onInvite?.(r.id)}
+              onDelete={() => askDelete(r)}
+              pinned={pins.includes(r.id)}
+              onTogglePin={() => togglePin(r.id)}
+            />
+          ))}
+          {!gruposSorted.length && <li className="text-xs text-gray-400">Sin grupos</li>}
+        </ul>
+      </section>
+
+      <section>
+        <div className="mb-1 text-xs font-semibold text-gray-500">Privados</div>
+        <ul className="space-y-1">
+          {privadosSorted.map((r) => (
+            <RoomItem
+              key={r.id}
+              room={r}
+              active={selected?.id===r.id}
+              unread={getUnread?.(r.id) || 0}
+              onClick={() => onSelect?.({ id: r.id, tipo: "privado", nombre: r.nombre })}
+              pinned={pins.includes(r.id)}
+              onTogglePin={() => togglePin(r.id)}
+            />
+          ))}
+          {!privadosSorted.length && <li className="text-xs text-gray-400">Sin privados</li>}
+        </ul>
+      </section>
+
+      {creating && <CreateGroupModal onClose={()=>setCreating(false)} onCreate={doCreate} />}
+    </div>
+  );
+}
+
+function RoomItem({ room, active, onClick, unread=0, onInvite, onDelete, pinned, onTogglePin }) {
+  return (
+    <li>
+      <div className={`flex items-center justify-between rounded px-2 py-1 ${active?'bg-blue-50':''}`}>
+        <button type="button" className="flex-1 text-left text-sm hover:bg-gray-50 rounded px-1 py-0.5" onClick={onClick}>
+          <span className="truncate">#{room.nombre}</span>
+        </button>
+        <div className="ml-2 flex shrink-0 items-center gap-1">
+          {!!unread && <span className="min-w-5 rounded-full bg-red-600 px-1.5 text-center text-xs text-white">{unread}</span>}
+          {onInvite && <button type="button" title="Invitar" className="rounded border px-1 text-xs" onClick={onInvite}>+</button>}
+          {onDelete && <button type="button" title="Eliminar" className="rounded border px-1 text-xs" onClick={onDelete}>🗑</button>}
+          <button type="button" title={pinned ? "Quitar de favoritos":"Añadir a favoritos"} className="rounded border px-1 text-xs"
+            onClick={(e)=>{ e.stopPropagation(); onTogglePin?.(); }}>
+            {pinned ? "⭐" : "☆"}
+          </button>
+        </div>
       </div>
+    </li>
+  );
+}
 
-      <div className="grid grid-cols-[260px_1fr] gap-4">
-        <aside className="rounded border bg-white p-3">
-          <input className="mb-2 w-full rounded border px-2 py-1 text-sm" placeholder="Buscar grupo…" />
-          <div className="divide-y">
-            {ordered.map(g => (
-              <button
-                key={g.id}
-                onClick={()=>setCurrent(g)}
-                className={`flex w-full items-center justify-between px-2 py-2 text-left text-sm hover:bg-gray-50 ${current?.id===g.id?'bg-blue-50':''}`}
-              >
-                <span className="truncate">{g.name}</span>
-                <span onClick={(e)=>{e.stopPropagation(); togglePin(g.id);}} className="select-none text-amber-400" title="Favorito">★</span>
-              </button>
-            ))}
-            {!ordered.length && <div className="px-2 py-8 text-center text-xs text-gray-400">No hay grupos. Crea uno nuevo.</div>}
-          </div>
-        </aside>
+/* Modal crear grupo (nombre + selección usuarios) */
+function CreateGroupModal({ onClose, onCreate }) {
+  const [nombre, setNombre] = useState("");
+  const [users, setUsers] = useState([]);
+  const [sel, setSel] = useState({});
 
-        <section className="rounded border bg-white p-4">
-          {current ? (
-            <>
-              <div className="mb-2 text-sm">Grupo: <span className="font-medium">{current.name}</span></div>
-              <div className="rounded border bg-gray-50 p-3 text-sm text-gray-500">
-                Aquí iría el timeline del grupo (enlaza tu lógica de rooms).
-              </div>
-            </>
-          ) : (
-            <div className="rounded border bg-gray-50 p-6 text-center text-sm text-gray-500">
-              Selecciona un grupo de la lista o crea uno nuevo con “+ Nuevo chat”.
-            </div>
-          )}
-        </section>
+  useEffect(()=>{ (async()=>{
+    try { setUsers(await apiGet("/chat/users")); } catch {}
+  })(); }, []);
+
+  const toggle = (id) => setSel(s => ({...s, [id]: !s[id]}));
+  const submit = () => onCreate?.({ nombre, members: Object.entries(sel).filter(([,v])=>v).map(([k])=>k) });
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40">
+      <div className="w-full max-w-lg rounded bg-white p-4 shadow">
+        <h3 className="mb-3 text-lg font-semibold">Nuevo grupo</h3>
+        <label className="mb-2 block text-sm">Nombre</label>
+        <input className="mb-4 w-full rounded border px-2 py-1" value={nombre} onChange={(e)=>setNombre(e.target.value)} />
+        <div className="mb-2 text-sm font-medium">Invitar</div>
+        <div className="max-h-48 overflow-auto rounded border p-2">
+          {users.map(u=>(
+            <label key={u.id} className="flex items-center gap-2 py-0.5 text-sm">
+              <input type="checkbox" checked={!!sel[u.id]} onChange={()=>toggle(u.id)} /> {u.nombre || u.email}
+            </label>
+          ))}
+          {!users.length && <div className="text-xs text-gray-500">Sin usuarios</div>}
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <button className="rounded border px-3 py-1" onClick={onClose}>Cancelar</button>
+          <button className="rounded bg-blue-600 px-3 py-1 text-white" onClick={submit}>Crear</button>
+        </div>
       </div>
-
-      {openModal && <NewChatModal open onClose={()=>setOpenModal(false)} onCreated={createGroup} />}
     </div>
   );
 }

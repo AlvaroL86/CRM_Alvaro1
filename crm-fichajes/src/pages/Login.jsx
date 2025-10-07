@@ -6,6 +6,13 @@ import { useAuth } from "../context/AuthContext";
 const BRAND = import.meta.env.VITE_BRAND || "CRM";
 const BRAND_LOGO = import.meta.env.VITE_BRAND_LOGO || "";
 
+function withTimeout(promise, ms = 12000) {
+  return Promise.race([
+    promise,
+    new Promise((_, rej) => setTimeout(() => rej(new Error("Tiempo de espera agotado")), ms)),
+  ]);
+}
+
 export default function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
@@ -20,20 +27,19 @@ export default function Login() {
     e.preventDefault();
     setErr("");
 
-    // username puede trim; password va TAL CUAL
     if (!username.trim() || password === "") {
       setErr("Usuario y contraseña son obligatorios.");
       return;
     }
 
+    setLoading(true);
     try {
-      setLoading(true);
-      await login(username, password); // el context hace la llamada y guarda token
-      navigate("/admin/users", { replace: true });
+      await withTimeout(login(username.trim(), password), 12000);
+      navigate("/chat", { replace: true }); // <- a chat
     } catch (e) {
       setErr(e?.message || "Credenciales inválidas");
     } finally {
-      setLoading(false);
+      setLoading(false); // <-- no se queda en “Accediendo…”
     }
   }
 
@@ -81,7 +87,7 @@ export default function Login() {
                   className="w-full rounded-lg border-gray-300 pr-10 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="••••••••"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)} // SIN trim
+                  onChange={(e) => setPassword(e.target.value)} // sin trim
                 />
                 <button
                   type="button"
@@ -105,12 +111,8 @@ export default function Login() {
           </form>
 
           <div className="mt-6 flex items-center justify-between text-sm">
-            <Link to="/forgot" className="text-blue-600 hover:underline">
-              Olvidé mi contraseña
-            </Link>
-            <Link to="/request-access" className="text-blue-600 hover:underline">
-              Solicitar registro
-            </Link>
+            <Link to="/forgot" className="text-blue-600 hover:underline">Olvidé mi contraseña</Link>
+            <Link to="/request-access" className="text-blue-600 hover:underline">Solicitar registro</Link>
           </div>
         </div>
 

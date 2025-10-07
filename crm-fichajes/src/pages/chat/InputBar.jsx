@@ -1,57 +1,131 @@
 // src/pages/chat/InputBar.jsx
-import { useState, lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
-const EmojiPicker = lazy(() => import('emoji-picker-react'));
+const EmojiPicker = lazy(() => import("emoji-picker-react"));
 
-export default function InputBar({ value, onChange, onSend }) {
-  const [openEmoji, setOpenEmoji] = useState(false);
+export default function InputBar({
+  value,
+  onChange,
+  onSend,
+  placeholder = "Escribe un mensaje…",
+  disabled = false,
+}) {
+  const taRef = useRef(null);
+  const fileRef = useRef(null);
+  const [showEmoji, setShowEmoji] = useState(false);
 
-  const handleEmoji = (e) => {
-    const emoji = e?.emoji || '';
-    onChange(value + emoji);
-  };
+  // autoresize textarea (máx 96px)
+  useEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 96) + "px";
+  }, [value]);
 
-  const send = () => {
-    if (String(value).trim()) onSend(String(value).trim());
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      onSend?.();
+    }
   };
 
   return (
-    <div className="relative mt-2 flex items-start gap-2">
-      <div className="flex gap-2 pt-2">
+    <div className="border-t bg-white p-2">
+      <div className="relative flex items-end gap-2">
+        {/* Emoji */}
+        <div className="relative">
+          <button
+            type="button"
+            className="rounded border px-2 py-1 text-xl"
+            title="Emoji"
+            onClick={() => setShowEmoji((v) => !v)}
+            disabled={disabled}
+          >
+            😊
+          </button>
+          {showEmoji && (
+            <div className="absolute bottom-10 z-20">
+              <Suspense
+                fallback={
+                  <div className="rounded border bg-white p-2 text-xs">
+                    Cargando…
+                  </div>
+                }
+              >
+                <EmojiPicker
+                  onEmojiClick={(e) => {
+                    onChange?.((value || "") + e.emoji);
+                    setShowEmoji(false);
+                  }}
+                />
+              </Suspense>
+            </div>
+          )}
+        </div>
+
+        {/* Adjuntar (placeholder) */}
         <button
           type="button"
-          className="rounded px-2 py-1 text-xl"
-          title="Emojis"
-          onClick={() => setOpenEmoji(v => !v)}
-        >😊</button>
-
-        <button type="button" className="rounded px-2 py-1" title="Adjuntar archivo">📎</button>
-        <button type="button" className="rounded px-2 py-1" title="Dictar">🎤</button>
-        <button type="button" className="rounded px-2 py-1" title="Audio">🔊</button>
-        {/* vídeo lo dejamos preparado */}
-        {/* <button type="button" className="rounded px-2 py-1" title="Video">📹</button> */}
-      </div>
-
-      <div className="flex-1">
-        <textarea
-          rows={2}
-          className="w-full rounded border px-3 py-2"
-          placeholder="Escribe un mensaje..."
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }}}
+          className="rounded border px-2 py-1"
+          title="Adjuntar (próximamente)"
+          onClick={() => fileRef.current?.click()}
+          disabled={disabled}
+        >
+          📎
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          className="hidden"
+          onChange={() =>
+            alert("Subida de archivos: backend pendiente de integrar.")
+          }
         />
-      </div>
 
-      <button onClick={send} className="h-10 rounded bg-blue-600 px-4 text-white mt-2">Enviar</button>
+        {/* Dictado / Audio (placeholders) */}
+        <button
+          type="button"
+          className="rounded border px-2 py-1"
+          title="Dictado (próximamente)"
+          onClick={() => alert("Dictado próximamente")}
+          disabled={disabled}
+        >
+          🎤
+        </button>
+        <button
+          type="button"
+          className="rounded border px-2 py-1"
+          title="Audio (próximamente)"
+          onClick={() => alert("Audio próximamente")}
+          disabled={disabled}
+        >
+          🔊
+        </button>
 
-      {openEmoji && (
-        <div className="absolute -top-2 left-0 z-20 translate-y-[-100%] rounded border bg-white shadow">
-          <Suspense fallback={<div className="p-2 text-sm">Cargando…</div>}>
-            <EmojiPicker onEmojiClick={handleEmoji} lazyLoadEmojis />
-          </Suspense>
+        {/* Input */}
+        <div className="flex-1">
+          <textarea
+            ref={taRef}
+            rows={1}
+            className="w-full max-h-24 resize-none rounded border px-3 py-2 text-sm leading-5 outline-none focus:ring-2 focus:ring-blue-200"
+            placeholder={placeholder}
+            value={value || ""}
+            onChange={(e) => onChange?.(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={disabled}
+          />
         </div>
-      )}
+
+        {/* Enviar */}
+        <button
+          type="button"
+          className="rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+          onClick={() => onSend?.()}
+          disabled={disabled}
+        >
+          Enviar
+        </button>
+      </div>
     </div>
   );
 }

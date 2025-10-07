@@ -2,88 +2,107 @@
 const db = require('../db');
 const { randomUUID } = require('crypto');
 
-/** ---------- helpers ---------- */
-function id64() {
-  // id corto compatible para varchar(64)
-  return randomUUID().replace(/-/g, '');
-}
+const uuid = () => randomUUID().replace(/-/g, '');
+const toKebab = (s = '') =>
+  s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
-/** Devuelve el NIF del usuario */
 async function getUserNif(userId) {
-  const [rows] = await db.query('SELECT nif FROM usuarios WHERE id=? LIMIT 1', [userId]);
-  return rows?.[0]?.nif || null;
+  const [[row]] = await db.query(`SELECT nif FROM usuarios WHERE id=? LIMIT 1`, [userId]);
+  return row?.nif || null;
 }
 
-/** Asegura y devuelve el id de la sala "General" para un NIF */
-async function getGeneralRoomId(nif) {
-  // 1) intentar encontrarla
-  const [rows] = await db.query(
-    `SELECT id FROM chat_rooms
-     WHERE (nif = ? OR (? IS NULL AND nif IS NULL))
-       AND (tipo='general' OR slug='general' OR nombre='General')
-     ORDER BY created_at ASC
-     LIMIT 1`,
-    [nif || null, nif || null]
-  );
-  if (rows.length) return rows[0].id;
+async function ensureGeneralIdForUser(userId) {
+  const nif = await getUserNif(userId);
+  if (!nif) throw new Error('nif_missing');
 
-  // 2) crear si no existe
-  const id = id64();
+  const slug = 'general';
+  const [[exist]] = await db.query(
+    `SELECT id FROM chat_rooms WHERE nif=? AND slug=? LIMIT 1`, [nif, slug]
+  );
+
+  let roomId = exist?.id;
+  if (!roomId) {
+    roomId = uuid();
+    await db.query(
+      `INSERT INTO chat_rooms (id, nombre, tipo, nif, slug, created_at)
+       VALUES (?, 'General', 'general', ?, ?, NOW())`,
+      [roomId, nif, slug]
+    );
+  }
+
+  await db.query(
+    `INSERT IGNORE INTO chat_room_members (room_id, user_id, rol, created_at)
+     VALUES (?, ?, 'miembro', NOW())`,
+    [roomId, userId]
+  );
+
+  return roomId;
+}
+
+async function ensureGroup(nif, nombre /* descripcion ignorada */) {
+  const base = toKebab(nombre || 'grupo');
+  const slug = `g:${base}`;
+
+  const [[exist]] = await db.query(
+    `SELECT id, nombre FROM chat_rooms WHERE nif=? AND slug=? LIMIT 1`,
+    [nif, slug]
+  );
+  if (exist) return { id: exist.id, nombre: exist.nombre };
+
+  const id = uuid();
   await db.query(
     `INSERT INTO chat_rooms (id, nombre, tipo, nif, slug, created_at)
-     VALUES (?, 'General', 'general', ?, 'general', NOW())`,
-    [id, nif || null]
+     VALUES (?, ?, 'grupo', ?, ?, NOW())`,
+    [id, nombre, nif, slug]
   );
+  return { id, nombre };
+}
+
+async function ensurePrivateRoom(nif, userA, userB) {
+  const [a, b] = [String(userA), String(userB)].sort();
+  const slug = `p:${a}:${b}`;
+
+  const [[exist]] = await db.query(
+    `SELECT id, nombre FROM chat_rooms WHERE nif=? AND slug=? LIMIT 1`,
+    [nif, slug]
+  );
+  if (exist) return exist.id;
+
+  const id = uuid();
+  await db.query(
+    `INSERT INTO chat_rooms (id, nombre, tipo, nif, slug, created_at)
+     VALUES (?, 'Privado', 'privado', ?, ?, NOW())`,
+    [id, nif, slug]
+  );
+
+  await db.query(
+    `INSERT IGNORE INTO chat_room_members (room_id, user_id, rol, created_at)
+     VALUES (?, ?, 'miembro', NOW()), (?, ?, 'miembro', NOW())`,
+    [id, a, id, b]
+  );
+
   return id;
 }
 
-/**
- * Resuelve un alias/slug/id a id real para un NIF (tenant).
- * - 'general' | 'General' -> id de la general
- * - id existente -> ese id
- * - slug existente -> su id
- * Si no existe, cae a la general.
- */
-async function resolveRoomId(roomOrAlias, nif) {
-  const v = String(roomOrAlias || '').trim();
-  if (!v || /^general$/i.test(v)) return getGeneralRoomId(nif);
-
-  // ¿es un id exacto?
-  const [[rowById]] = await db.query(`SELECT id FROM chat_rooms WHERE id=? LIMIT 1`, [v]);
-  if (rowById?.id) return rowById.id;
-
-  // ¿es un slug/nombre?
-  const [rows] = await db.query(
-    `SELECT id FROM chat_rooms
-     WHERE (nif = ? OR (? IS NULL AND nif IS NULL))
-       AND (slug = ? OR nombre = ?)
-     LIMIT 1`,
-    [nif || null, nif || null, v.toLowerCase(), v]
-  );
-  if (rows.length) return rows[0].id;
-
-  // fallback: general
-  return getGeneralRoomId(nif);
-}
-
-/** --------- compat (por si algo del front viejo lo usa) --------- */
-async function ensureGeneralIdForUser(userId) {
-  const nif = await getUserNif(userId);
-  if (!nif) throw new Error('nif-not-found');
-  return getGeneralRoomId(nif);
-}
-
 async function resolveRoomIdForUser(userId, room) {
-  const nif = await getUserNif(userId);
-  if (!nif) throw new Error('nif-not-found');
-  return resolveRoomId(room, nif);
+  // ✅ aquí estaba el bug: hay que pasar userId, NO el NIF
+  if (room === 'general') {
+    return await ensureGeneralIdForUser(userId);
+  }
+
+  const [[ok]] = await db.query(
+    `SELECT 1 AS ok FROM chat_room_members WHERE room_id=? AND user_id=? LIMIT 1`,
+    [room, userId]
+  );
+  if (!ok) throw new Error('no_member');
+  return room;
 }
 
 module.exports = {
-  // principales
-  getGeneralRoomId,
-  resolveRoomId,
-  // compat
+  getUserNif,
   ensureGeneralIdForUser,
+  ensureGroup,
+  ensurePrivateRoom,
   resolveRoomIdForUser,
 };

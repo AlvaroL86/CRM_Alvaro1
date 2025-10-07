@@ -1,56 +1,16 @@
 // src/socket.js
 import { io } from "socket.io-client";
-import { BASE_URL, readToken } from "./services/api";
+import { BASE_URL } from "./services/api";
 
-let socket = null;
-
-function safeGetToken() {
-  try { return readToken?.() ?? localStorage.getItem("crm_token") ?? null; }
-  catch { return null; }
-}
-
-export function getSocket(forceReconnect = false) {
-  if (socket && !forceReconnect) return socket;
-  if (socket && forceReconnect) {
-    try { socket.disconnect(); } catch {}
-    socket = null;
+let socket;
+export function getSocket() {
+  if (!socket) {
+    const url = import.meta.env.VITE_API_URL || "http://localhost:3000";
+    socket = io(url, { transports: ["websocket"], autoConnect: true });
+    socket.on("connect", () => {
+      const u = readUser();
+      if (u?.id) socket.emit("auth:hello", { id: u.id, nombre: u.nombre || u.username || String(u.id), nif: u.nif || null });
+    });
   }
-
-  const token = safeGetToken();
-
-  socket = io(BASE_URL, {
-    transports: ["websocket"],
-    autoConnect: true,
-    reconnection: true,
-    reconnectionAttempts: 10,
-    reconnectionDelay: 1000,
-    timeout: 20000,
-    auth: token ? { token } : undefined,
-  });
-
-  if (import.meta?.env?.DEV) {
-    socket.on("connect", () => console.log("[socket] connected:", socket.id));
-    socket.on("disconnect", (r) => console.log("[socket] disconnected:", r));
-    socket.on("connect_error", (e) => console.warn("[socket] error:", e?.message ?? e));
-  }
-
   return socket;
-}
-
-export function disconnectSocket() {
-  if (socket) {
-    try { socket.disconnect(); } catch {}
-    socket = null;
-  }
-}
-
-export function on(event, handler) {
-  const s = getSocket();
-  s.on(event, handler);
-  return () => s.off(event, handler);
-}
-
-export function emit(event, payload) {
-  const s = getSocket();
-  s.emit(event, payload);
 }
