@@ -28,7 +28,6 @@ function authHeaders() {
 function withTimeout(signal, ms = TIMEOUT_MS) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ms);
-  // Combinamos señales si nos pasaran una
   const finalSignal = controller.signal;
   if (signal) {
     if (signal.aborted) controller.abort();
@@ -54,18 +53,30 @@ export async function apiGet(path, { signal } = {}) {
     return await handle(res);
   } finally { clear(); }
 }
-export async function apiPost(path, body, { signal } = {}) {
+
+/**
+ * apiPost inteligente:
+ * - Si body es FormData o {isFormData:true}, NO fija Content-Type (lo pone el navegador).
+ * - Si body es objeto normal, envía JSON.
+ */
+export async function apiPost(path, body, { signal, isFormData } = {}) {
   const { finalSignal, clear } = withTimeout(signal);
   try {
+    const isFD = isFormData || (typeof FormData !== "undefined" && body instanceof FormData);
+    const headers = { ...authHeaders() };
+    const payload = isFD ? body : JSON.stringify(body ?? {});
+    if (!isFD) headers["Content-Type"] = "application/json";
+
     const res = await fetch(`${BASE_URL}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify(body ?? {}),
+      headers,
+      body: payload,
       signal: finalSignal,
     });
     return await handle(res);
   } finally { clear(); }
 }
+
 export async function apiPatch(path, body, { signal } = {}) {
   const { finalSignal, clear } = withTimeout(signal);
   try {
@@ -97,6 +108,8 @@ export async function apiDelete(path, { signal } = {}) {
     return await handle(res);
   } finally { clear(); }
 }
+
+/** Siga existiendo por compatibilidad, pero ya no es necesario si usas apiPost con {isFormData:true} */
 export async function apiPostForm(path, formData, { signal } = {}) {
   const { finalSignal, clear } = withTimeout(signal);
   try {

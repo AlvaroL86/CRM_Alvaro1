@@ -1,4 +1,3 @@
-// src/App.jsx
 import { Routes, Route, Navigate } from "react-router-dom";
 
 import Login from "./pages/Login";
@@ -31,12 +30,14 @@ import PrivateGuard from "./components/PrivateGuard";
 export default function App() {
   return (
     <Routes>
+      {/* Rutas públicas */}
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="/login" element={<Login />} />
       <Route path="/forgot" element={<ForgotPage />} />
       <Route path="/request-access" element={<RequestAccessPage />} />
       <Route path="/unauthorized" element={<Unauthorized />} />
 
+      {/* Rutas privadas (requieren autenticación) */}
       <Route element={<PrivateGuard />}>
         <Route element={<MainLayout />}>
           <Route path="/dashboard" element={<Dashboard />} />
@@ -49,7 +50,7 @@ export default function App() {
           <Route path="/profile" element={<Profile />} />
           <Route path="/tickets" element={<TicketsPage />} />
 
-          {/* Chat anidado */}
+          {/* Chat con subrutas */}
           <Route path="/chat" element={<Chat />}>
             <Route index element={<ChatGeneral />} />
             <Route path="saved" element={<ChatSaved />} />
@@ -57,16 +58,25 @@ export default function App() {
             <Route path="groups" element={<ChatGroups />} />
           </Route>
 
-          {/* Admin: por rol O por permiso */}
-          <Route element={<PrivateGuard roles={["admin","supervisor"]} perm="usuarios.usersview" />}>
+          {/* Administración */}
+          <Route
+            element={
+              <PrivateGuard
+                roles={["admin", "supervisor"]}
+                perm="usuarios.usersview"
+              />
+            }
+          >
             <Route path="/admin/users" element={<Users />} />
           </Route>
+
           <Route element={<PrivateGuard roles={["admin"]} />}>
             <Route path="/admin/users-roles" element={<UsersRoles />} />
           </Route>
         </Route>
       </Route>
 
+      {/* Catch-all */}
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   );
